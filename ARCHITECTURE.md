@@ -133,7 +133,7 @@ If the selected port is already in use, another program is listening there. Stop
 | `src/create-admin.js` | Creates the initial administrator from private environment variables |
 | `store.sqlite` | Local application data; preserved in the project root and ignored by Git |
 
-The project now uses the requested physical layout while preserving existing public URLs and the existing root database file. Route registrations are grouped into feature-specific route modules outside the Express bootstrap. Account, seller, catalog, reviews, and orders/payments delegate route handling to controllers, validation/payment workflows to services, and SQL plus checkout/payment state transactions to repositories. Admin overview, product management, and category management use the admin repository; category validation is in the admin service. Other admin workflows still contain direct SQL and response logic in the admin controller and are candidates for the same separation. The root compatibility files should remain until any external scripts that depend on them are updated.
+The project now uses the requested physical layout while preserving existing public URLs and the existing root database file. Route registrations are grouped into feature-specific route modules outside the Express bootstrap. Account, seller, catalog, reviews, orders/payments, and admin delegate HTTP handling to controllers, validation/workflows to services, and SQL plus state-changing transactions to repositories. Shared catalog helpers remain in `src/services/marketplace.shared.js` where they are used by multiple features. The root compatibility files should remain until any external scripts that depend on them are updated.
 
 ## 8. Build and verification pipeline
 

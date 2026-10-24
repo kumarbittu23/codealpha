@@ -95,6 +95,10 @@ function findCategory(id) {
   return categoryById(id);
 }
 
+function productSkuExists(sku, exceptId = 0) {
+  return Boolean(database.prepare("SELECT 1 FROM products WHERE sku = ? AND id != ?").get(sku, exceptId));
+}
+
 function categorySlugExists(slug, exceptId = null) {
   return exceptId === null
     ? database.prepare("SELECT 1 FROM categories WHERE slug = ?").get(slug)
@@ -175,8 +179,138 @@ function deleteProduct(id) {
   return "deleted";
 }
 
+function updateSeller(id, status) {
+  return database.prepare(`
+    UPDATE sellers
+    SET status = ?, approved_at = CASE WHEN ? = 'active' THEN CURRENT_TIMESTAMP ELSE approved_at END
+    WHERE id = ? AND platform_owned = 0
+  `).run(status, status, id).changes > 0;
+}
+
+function updateCommission(basisPoints) {
+  database.prepare("UPDATE marketplace_settings SET commission_basis_points = ? WHERE id = 1").run(basisPoints);
+}
+
+function recordPayout(sellerId, reference, notes, paidByUserId) {
+  return database.transaction(() => {
+    const seller = database.prepare("SELECT id, status, platform_owned FROM sellers WHERE id = ?").get(sellerId);
+    if (!seller || seller.platform_owned) return { error: "seller_not_found" };
+    if (seller.status !== "active") return { error: "seller_inactive" };
+    const items = database.prepare(`
+      SELECT order_items.id, order_items.seller_payout_paise
+      FROM order_items JOIN orders ON orders.id = order_items.order_id
+      WHERE order_items.seller_id = ? AND orders.payment_status = 'paid'
+        AND orders.status != 'cancelled' AND order_items.payout_status = 'pending'
+    `).all(sellerId);
+    const amountPaise = items.reduce((sum, item) => sum + item.seller_payout_paise, 0);
+    if (amountPaise <= 0) return { error: "no_balance" };
+    const result = database.prepare(`
+      INSERT INTO seller_payouts (seller_id, amount_paise, reference, notes, paid_by_user_id)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(sellerId, amountPaise, reference, notes, paidByUserId);
+    const markPaid = database.prepare("UPDATE order_items SET payout_status = 'paid' WHERE id = ? AND payout_status = 'pending'");
+    for (const item of items) markPaid.run(item.id);
+    return { payout: { id: Number(result.lastInsertRowid), sellerId, amountPaise, reference } };
+  });
+}
+
+function createCoupon(coupon) {
+  const result = database.prepare(`
+    INSERT INTO coupons (code, discount_basis_points, min_order_paise, max_discount_paise, usage_limit, expires_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(coupon.code, coupon.discountBasisPoints, coupon.minOrderPaise, coupon.maxDiscountPaise, coupon.usageLimit, coupon.expiresAt);
+  return { id: Number(result.lastInsertRowid), code: coupon.code };
+}
+
+function listCoupons() {
+  return database.prepare(`
+    SELECT id, code, discount_basis_points AS discountBasisPoints,
+      min_order_paise AS minOrderPaise, max_discount_paise AS maxDiscountPaise,
+      usage_limit AS usageLimit, usage_count AS usageCount, expires_at AS expiresAt, active
+    FROM coupons ORDER BY id DESC
+  `).all();
+}
+
+function updateCoupon(id, active) {
+  return database.prepare("UPDATE coupons SET active = ? WHERE id = ?").run(active ? 1 : 0, id).changes > 0;
+}
+
+function findReturnStatus(id) {
+  return database.prepare("SELECT status FROM return_requests WHERE id = ?").get(id)?.status || null;
+}
+
+function updateReturn(id, status, resolvedByUserId) {
+  database.prepare(`
+    UPDATE return_requests SET status = ?, resolved_at = CURRENT_TIMESTAMP, resolved_by_user_id = ?
+    WHERE id = ?
+  `).run(status, resolvedByUserId, id);
+}
+
+function getOrderForAdminUpdate(id) {
+  return database.prepare("SELECT id, status, payment_status AS paymentStatus FROM orders WHERE id = ?").get(id);
+}
+
+function hasShippedFulfillment(id) {
+  return Boolean(database.prepare(`
+    SELECT 1 FROM seller_fulfillments WHERE order_id = ? AND status IN ('shipped', 'delivered') LIMIT 1
+  `).get(id));
+}
+
+function getOrderItemsForRestock(id) {
+  return database.prepare("SELECT product_id AS productId, quantity FROM order_items WHERE order_id = ?").all(id);
+}
+
+function restockProduct(productId, quantity) {
+  database.prepare("UPDATE products SET stock = stock + ? WHERE id = ?").run(quantity, productId);
+}
+
+function cancelOrder(id) {
+  database.prepare("UPDATE orders SET status = 'cancelled', payment_status = 'cancelled' WHERE id = ?").run(id);
+  database.prepare(`
+    UPDATE seller_fulfillments SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE order_id = ?
+  `).run(id);
+}
+
+function markOrderDelivered(id, trackingCarrier, trackingCode) {
+  database.prepare(`
+    UPDATE orders SET status = 'delivered',
+      tracking_carrier = COALESCE(NULLIF(?, ''), tracking_carrier),
+      tracking_code = COALESCE(NULLIF(?, ''), tracking_code),
+      payment_status = CASE WHEN payment_method = 'cash_on_delivery' THEN 'paid' ELSE payment_status END
+    WHERE id = ?
+  `).run(trackingCarrier, trackingCode, id);
+  database.prepare(`
+    UPDATE seller_fulfillments SET status = 'delivered',
+      tracking_carrier = COALESCE(NULLIF(?, ''), tracking_carrier),
+      tracking_code = COALESCE(NULLIF(?, ''), tracking_code),
+      updated_at = CURRENT_TIMESTAMP
+    WHERE order_id = ?
+  `).run(trackingCarrier, trackingCode, id);
+}
+
+function updateOrderStatus(id, status, trackingCarrier, trackingCode) {
+  database.prepare(`
+    UPDATE orders SET status = ?,
+      tracking_carrier = COALESCE(NULLIF(?, ''), tracking_carrier),
+      tracking_code = COALESCE(NULLIF(?, ''), tracking_code)
+    WHERE id = ?
+  `).run(status, trackingCarrier, trackingCode, id);
+  database.prepare(`
+    UPDATE seller_fulfillments SET status = ?,
+      tracking_carrier = COALESCE(NULLIF(?, ''), tracking_carrier),
+      tracking_code = COALESCE(NULLIF(?, ''), tracking_code),
+      updated_at = CURRENT_TIMESTAMP
+    WHERE order_id = ?
+  `).run(status, trackingCarrier, trackingCode, id);
+}
+
+function transaction(callback) {
+  return database.transaction(callback);
+}
+
 module.exports = {
   getOverview,
+  productSkuExists,
   findCategory,
   categorySlugExists,
   hasActiveCategoryParent,
@@ -186,5 +320,21 @@ module.exports = {
   deleteCategory,
   createProduct,
   updateProduct,
-  deleteProduct
+  deleteProduct,
+  updateSeller,
+  updateCommission,
+  recordPayout,
+  createCoupon,
+  listCoupons,
+  updateCoupon,
+  findReturnStatus,
+  updateReturn,
+  getOrderForAdminUpdate,
+  hasShippedFulfillment,
+  getOrderItemsForRestock,
+  restockProduct,
+  cancelOrder,
+  markOrderDelivered,
+  updateOrderStatus,
+  transaction
 };

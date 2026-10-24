@@ -166,7 +166,9 @@ function handleOrderError(error, response) {
 }
 
 
-function readAdminProduct(body, currentProductId = 0) {
+function readAdminProduct(body, currentProductId = 0, skuExists = (sku, exceptId) =>
+  database.prepare("SELECT 1 FROM products WHERE sku = ? AND id != ?").get(sku, exceptId)
+) {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return { error: "Provide product details." };
   }
@@ -188,7 +190,7 @@ function readAdminProduct(body, currentProductId = 0) {
 
   if (name.length < 2 || name.length > 120) return { error: "Product name must be between 2 and 120 characters." };
   if (sku && !/^[A-Z0-9_-]{2,40}$/.test(sku)) return { error: "SKU must be 2–40 letters, numbers, dashes, or underscores." };
-  if (sku && database.prepare("SELECT 1 FROM products WHERE sku = ? AND id != ?").get(sku, currentProductId)) {
+  if (sku && skuExists(sku, currentProductId)) {
     return { error: "That SKU/barcode is already assigned to another product." };
   }
   if (description.length < 10 || description.length > 2000) return { error: "Description must be between 10 and 2,000 characters." };
