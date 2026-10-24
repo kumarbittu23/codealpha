@@ -137,12 +137,15 @@ The project now uses the requested physical layout while preserving existing pub
 
 ## 8. Build and verification pipeline
 
-This project does not currently have a hosted CI/CD pipeline. For each code change, use this local development/check pipeline:
+GitHub Actions runs the automated CI workflow in `.github/workflows/ci.yml` on pushes and pull requests targeting `main`. It uses Node.js 22, installs the locked dependencies with `npm ci`, checks JavaScript syntax, and runs `npm test`. A failed check is visible on the GitHub Actions tab and blocks a pull request from passing its checks.
+
+For each code change, use this local development/check pipeline:
 
 ```text
 Make a focused code change
   -> Run `npm test`
   -> Check changed JavaScript with `node --check <file>`
+  -> Push to GitHub or open a pull request; Actions repeats syntax checks and tests
   -> Start/restart with `npm start`
   -> Open the affected page and verify the workflow in a browser
   -> Back up the database before deploying changes to a live server

@@ -37,6 +37,10 @@ For a plain-language system diagram, role guide, and customer/seller/admin workf
 
 The server entry point is `src/server.js`; the Express app is configured in `src/app.js`. Frontend assets are organized under `public/customer/`, `public/seller/`, `public/admin/`, `public/css/`, and `public/js/`. Existing page URLs such as `/account.html` remain available. Feature route registrations live in separate modules under `src/routes/`, and delegate HTTP handling to controllers, validation/workflows to services, and SQL plus state-changing transactions to repositories. Authentication also has its own controller, service, and repository, with shared middleware and currency formatting separated under `src/`. The root `server.js` and `database.js` remain compatibility launchers. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the current structure.
 
+## Automated checks
+
+GitHub Actions automatically installs dependencies, checks JavaScript syntax, and runs the test suite on pushes and pull requests targeting `main`. View the latest results in the repository's **Actions** tab.
+
 Use `.env.example` as a checklist for optional environment variables. This app does not load `.env` files automatically; set the values in your terminal or hosting provider. `.env` is ignored by Git. Never commit credentials.
 
 If port 3000 is already occupied, stop the other server or start this one on another port with `set "PORT=3001" && npm start` in Command Prompt.
