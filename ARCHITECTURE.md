@@ -139,6 +139,8 @@ The project now uses the requested physical layout while preserving existing pub
 
 GitHub Actions runs the automated CI workflow in `.github/workflows/ci.yml` on pushes and pull requests targeting `main`. It uses Node.js 22, installs the locked dependencies with `npm ci`, checks JavaScript syntax, and runs `npm test`. A failed check is visible on the GitHub Actions tab and blocks a pull request from passing its checks.
 
+The app now persists login sessions in SQLite instead of Express's in-memory default, rejects short session secrets in production, supports an explicitly configured trusted-proxy hop count, and exposes `/health/live` and `/health/ready` probes. Run `npm run backup` to make a consistent SQLite snapshot with `VACUUM INTO`; the command verifies database integrity and foreign-key consistency, and refuses to overwrite an existing file. This is a manual local backup only: production still needs scheduled, encrypted offsite backups and tested restore procedures. This is production groundwork, not a production launch certification: SQLite sessions and the application database require one application instance with persistent disk. Multi-instance hosting needs a shared production database and session store; real payments, seller onboarding/payouts, monitoring, incident response, and compliance still need provider- and region-specific implementation.
+
 For each code change, use this local development/check pipeline:
 
 ```text
@@ -146,9 +148,9 @@ Make a focused code change
   -> Run `npm test`
   -> Check changed JavaScript with `node --check <file>`
   -> Push to GitHub or open a pull request; Actions repeats syntax checks and tests
+  -> Create a verified SQLite snapshot with `npm run backup` before deployment
   -> Start/restart with `npm start`
   -> Open the affected page and verify the workflow in a browser
-  -> Back up the database before deploying changes to a live server
 ```
 
 Tests use temporary SQLite databases so test orders and products do not need to be created in the normal local store.

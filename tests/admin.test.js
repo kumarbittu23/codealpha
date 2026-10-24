@@ -107,6 +107,13 @@ test("admin can manage catalog and process orders while customers stay restricte
     }
     assert.ok(ready, "server should start");
 
+    const liveHealth = await fetch(`${baseUrl}/health/live`);
+    assert.equal(liveHealth.status, 200);
+    assert.deepEqual(await liveHealth.json(), { status: "ok" });
+    const readyHealth = await fetch(`${baseUrl}/health/ready`);
+    assert.equal(readyHealth.status, 200);
+    assert.deepEqual(await readyHealth.json(), { status: "ready" });
+
     for (const route of [
       "/", "/account.html", "/cart.html", "/product.html", "/seller.html", "/admin.html",
       "/styles.css", "/common.js", "/css/styles.css", "/js/common.js", "/js/shop.js",

@@ -41,6 +41,22 @@ The server entry point is `src/server.js`; the Express app is configured in `src
 
 GitHub Actions automatically installs dependencies, checks JavaScript syntax, and runs the test suite on pushes and pull requests targeting `main`. View the latest results in the repository's **Actions** tab.
 
+## Production groundwork
+
+Sessions are stored in the configured SQLite database and survive application restarts. Production startup requires `SESSION_SECRET` to contain at least 32 characters. Generate a private random value with `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"` and provide it through the hosting provider's secret manager; do not commit it. If TLS terminates at one trusted reverse proxy, set `TRUST_PROXY_HOPS=1`; configure the exact number of trusted proxies for your host rather than trusting arbitrary forwarded headers.
+
+Hosting checks can use `GET /health/live` for process liveness and `GET /health/ready` for database readiness. This app still uses SQLite, so run only one application instance with persistent storage for this setup. Horizontal scaling, production payments and seller payouts, automated backups and restore tests, monitoring, and legal/compliance work remain required before a real marketplace launch.
+
+### Create a database backup
+
+Stop writes if practical, then run `npm run backup` to create and verify a consistent SQLite snapshot under the ignored `backups/` folder. Or specify a destination that does not already exist:
+
+```powershell
+npm run backup -- "D:\secure-backups\corner-store-before-deploy.sqlite"
+```
+
+The snapshot includes committed WAL data and is checked for SQLite integrity and foreign-key violations. Backups contain customer and order data: restrict access, encrypt them at rest, and copy them to a separate protected location. This command creates a manual local backup; it does not schedule backups, upload them offsite, or prove that your recovery procedure works. Set up scheduled offsite backups and regularly test restoring a copy before production use.
+
 Use `.env.example` as a checklist for optional environment variables. This app does not load `.env` files automatically; set the values in your terminal or hosting provider. `.env` is ignored by Git. Never commit credentials.
 
 If port 3000 is already occupied, stop the other server or start this one on another port with `set "PORT=3001" && npm start` in Command Prompt.
