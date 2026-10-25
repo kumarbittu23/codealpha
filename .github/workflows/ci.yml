@@ -23,6 +23,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            infra/cdk/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -32,3 +35,30 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+  infrastructure:
+    name: Synthesize AWS CDK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: infra/cdk/package-lock.json
+
+      - name: Install CDK dependencies
+        working-directory: infra/cdk
+        run: npm ci
+
+      - name: Test infrastructure template
+        working-directory: infra/cdk
+        run: npm test
+
+      - name: Synthesize development template
+        working-directory: infra/cdk
+        run: npm run synth -- --quiet

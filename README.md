@@ -41,11 +41,15 @@ The server entry point is `src/server.js`; the Express app is configured in `src
 
 GitHub Actions automatically installs dependencies, checks JavaScript syntax, and runs the test suite on pushes and pull requests targeting `main`. View the latest results in the repository's **Actions** tab.
 
+The workflow also builds and tests the AWS CDK foundation and synthesizes its development template. This is template validation only; it does not access AWS or deploy resources.
+
 ## Production groundwork
 
 Sessions are stored in the configured SQLite database and survive application restarts. Production startup requires `SESSION_SECRET` to contain at least 32 characters. Generate a private random value with `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"` and provide it through the hosting provider's secret manager; do not commit it. If TLS terminates at one trusted reverse proxy, set `TRUST_PROXY_HOPS=1`; configure the exact number of trusted proxies for your host rather than trusting arbitrary forwarded headers.
 
 Hosting checks can use `GET /health/live` for process liveness and `GET /health/ready` for database readiness. This app still uses SQLite, so run only one application instance with persistent storage for this setup. Horizontal scaling, production payments and seller payouts, automated backups and restore tests, monitoring, and legal/compliance work remain required before a real marketplace launch.
+
+An initial AWS CDK scaffold is in [infra/cdk/](./infra/cdk/). It targets `ap-south-1`; see its README for exactly which resources are described, how to run local synthesis, and deployment cost warnings. Do not run `cdk deploy` until the AWS owner sets a hard monthly cap and reviews the change set. The current Express/SQLite application is not connected to this infrastructure.
 
 ### Create a database backup
 

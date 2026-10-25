@@ -26,6 +26,87 @@ This describes the marketplace that exists in this project today. It is a simple
 
 The browser shows the pages and sends requests. Express checks who is signed in, validates the request, applies the marketplace rules, and reads or updates SQLite. The database is the source of truth for products, stock, users, and orders.
 
+## 1.1 Production target: AWS microservices
+
+The diagram above is the **current implementation**, not the requested production system. The code is currently a layered Express application with one SQLite database. Separate route/controller/service/repository files are useful boundaries, but they are **not independently deployable microservices**. There is no CDN/WAF, API gateway, distributed database, cache, search index, event bus, object store, carrier integration, or notification provider in the running application.
+
+The requested direction is a set of independently deployable services. The following Mermaid diagram is the target; it must not be read as a claim that those AWS resources have already been provisioned:
+
+```mermaid
+flowchart TB
+    C[Customer Web / App] --> EDGE
+    S[Seller Central] --> EDGE
+    A[Admin / Operations] --> EDGE
+    EDGE[Route 53 / CloudFront / WAF / ALB]
+    EDGE --> AUTH[Identity and Access]
+    EDGE --> CAT[Catalog]
+    EDGE --> SEARCH[Search and Discovery]
+    EDGE --> CART[Cart and Checkout]
+    EDGE --> SELL[Seller Management]
+    EDGE --> ORD[Order Management]
+    EDGE --> RET[Returns and Refunds]
+
+    CAT --> PDB[(Catalog DB)]
+    CAT --> S3[(S3 Media)]
+    CAT --> INDEX[(OpenSearch)]
+    SEARCH --> INDEX
+    SEARCH --> REDIS[(ElastiCache Redis)]
+    CART --> PRICE[Pricing and Promotions]
+    CART --> INV[Inventory]
+    CART --> ORD
+    PRICE --> PDB
+    INV --> IDB[(Inventory DB)]
+    ORD --> ODB[(Orders DB)]
+    ORD --> PAY[Payment Processing]
+    PAY --> PG[Razorpay Route, only after eligibility and approval]
+    AUTH --> UDB[(Identity DB)]
+    SELL --> SDB[(Seller DB)]
+    ORD --> QUEUE[SQS plus transactional outbox]
+    QUEUE --> SHIP[Shipping and Fulfillment]
+    QUEUE --> RET
+    QUEUE --> NOTIFY[SES / SMS provider]
+    SHIP --> CARRIER[Carrier APIs]
+    CAT --> REC[Recommendations MVP]
+```
+
+### AWS service mapping
+
+| Flowchart responsibility | Initial AWS mapping | Required ownership / rule |
+|---|---|---|
+| CDN, WAF, load balancer, API entry | Route 53, CloudFront, AWS WAF, Application Load Balancer; add API Gateway only if API management requirements justify it | TLS everywhere; private service tasks; no database exposed to the internet |
+| Independently deployed application services | One ECS on Fargate service and task definition per deployable service | Separate health checks, IAM task role, scaling and deploy/rollback for each service |
+| User and seller identity | Identity service, initially backed by its own PostgreSQL database | Identity owns credentials, sessions/tokens, role and store-scoped access grants; seller staff are not platform admins |
+| Catalog, seller, orders, inventory, payments, returns | A database owned by each service, hosted on Amazon RDS for PostgreSQL initially | A service never reads or writes another service's tables; use APIs/events instead of cross-service joins |
+| Cache and cart | ElastiCache for Redis | Cache is not the source of truth for inventory, payments, or placed orders |
+| Search | Amazon OpenSearch Service | Search is a rebuildable projection of catalog data, updated from versioned events |
+| Product images | Amazon S3 with private upload, validation, and controlled public delivery | Store image metadata in the catalog service; never store large media in relational rows |
+| Event bus / queue | Amazon SQS queues, dead-letter queues, and an outbox in the producing service's database | Consumers must be idempotent; persist an event before asynchronous delivery |
+| Email / SMS and shipping | SES and explicitly selected SMS/carrier providers | Provider credentials stay in Secrets Manager; webhook signatures and retry handling are required |
+| Recommendations | Database-powered similar-product MVP; separate service only after measurable need | Recommendations must not block product browsing or checkout |
+| Monitoring and secrets | CloudWatch logs/metrics/alarms and AWS Secrets Manager | Redact passwords, tokens, payment credentials, and sensitive customer information from logs |
+
+These AWS services are a **design mapping**, not an instruction to create resources. Production resources can incur charges. Do not provision them until the account owner approves the AWS account, region, cost budget, domain, backup retention, and recovery objectives.
+
+### Build sequence and completion gates
+
+Every phase has to pass its tests and preserve existing marketplace behavior before the next phase changes the production data path. A box in the target diagram is complete only when its service, owned data, security boundaries, monitoring, failure behavior, and integration tests exist.
+
+1. **Architecture and contract baseline (current step):** distinguish current code from target state, assign service/data ownership, and define migration order and acceptance gates.
+2. **Production prerequisites:** choose the AWS region and monthly budget; prepare an AWS account, domain/DNS, environment/secret ownership, backup retention, restore objective, and payment-provider eligibility. No cloud infrastructure should be created with unknown cost approval.
+3. **Data and runtime foundation:** migrate SQLite data safely to PostgreSQL; add schema migrations, per-service data ownership, idempotent migrations, automated backup/restore tests, container builds, private networking, secrets, health checks, logs and alarms. Keep the existing production data recoverable and do not cut over without a verified rollback.
+4. **Identity and access service:** extract authentication from the monolith; implement customer, platform-admin, seller-owner, and store-scoped seller-staff identities, MFA and audit trail. Prove that staff cannot read or mutate another store's data.
+5. **Catalog, seller, and media services:** extract category/product and seller onboarding domains; move uploaded assets to S3; enforce seller ownership on every read and write; publish catalog changes for the search projection.
+6. **Search and discovery:** build and rebuild the OpenSearch index from catalog events, add cache safely, and keep the database as catalog source of truth.
+7. **Pricing, cart, inventory, and checkout:** implement server-owned pricing, promotion rules, Redis-backed expiring carts, atomic inventory reservation/release, idempotency keys, and retry-safe checkout.
+8. **Order management and asynchronous workflow:** give orders an owned database; use an outbox and SQS for versioned order events; implement idempotent shipment, cancellation, return, and notification consumers with dead-letter/replay procedures.
+9. **Payment processing:** integrate a provider behind a payment service, with signed webhooks, reconciliation, idempotency, refund/reversal handling, and financial audit records. Razorpay Route documentation currently lists eligibility thresholds (domestic turnover above ₹40 lakh or qualifying export turnover above ₹5 lakh) and payer-payee transparency review; confirm the marketplace itself qualifies and is approved with Razorpay before building or enabling live seller transfers. A standard checkout key alone is not seller settlement approval.
+10. **Shipping, returns, notifications, and recommendations:** integrate selected providers only after contracts and sandbox credentials exist; handle provider outages and webhook retries; keep the initial recommendation feature non-critical.
+11. **Edge, operations, and launch gates:** add CloudFront/WAF/ALB policies, rate limits, restore and disaster-recovery drills, load/security tests, alert runbooks, staged deployment/rollback, privacy/data-retention controls, and legal/accounting review for India.
+
+**Current completion:** the app still runs as one SQLite-backed Express application. Session persistence, production secret checks, health endpoints, and a manual verified backup utility exist. An un-deployed CDK foundation scaffold now defines the VPC, a migration-bridge PostgreSQL instance, private S3 media bucket, SQS queue/DLQ, ECS cluster, and ECR repositories; it creates no resources until someone explicitly deploys it. Independent service applications, per-service databases, ECS task definitions, search/cache, public edge, real payment, seller staff accounts, and provider integrations do not exist yet. The next development phase is a safe PostgreSQL migration plan and database adapter; do not deploy the CDK foundation until a hard AWS spend cap and resource review are approved.
+
+Razorpay Route requirements: [official Razorpay Route documentation](https://razorpay.com/docs/payments/route/). AWS mappings: [Amazon ECS on Fargate](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/AWS_Fargate.html) and [Amazon RDS for PostgreSQL](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_PostgreSQL.html).
+
 ## 2. People and permissions
 
 | Role | How they get access | What they can do |
@@ -139,7 +220,7 @@ The project now uses the requested physical layout while preserving existing pub
 
 GitHub Actions runs the automated CI workflow in `.github/workflows/ci.yml` on pushes and pull requests targeting `main`. It uses Node.js 22, installs the locked dependencies with `npm ci`, checks JavaScript syntax, and runs `npm test`. A failed check is visible on the GitHub Actions tab and blocks a pull request from passing its checks.
 
-The app now persists login sessions in SQLite instead of Express's in-memory default, rejects short session secrets in production, supports an explicitly configured trusted-proxy hop count, and exposes `/health/live` and `/health/ready` probes. Run `npm run backup` to make a consistent SQLite snapshot with `VACUUM INTO`; the command verifies database integrity and foreign-key consistency, and refuses to overwrite an existing file. This is a manual local backup only: production still needs scheduled, encrypted offsite backups and tested restore procedures. This is production groundwork, not a production launch certification: SQLite sessions and the application database require one application instance with persistent disk. Multi-instance hosting needs a shared production database and session store; real payments, seller onboarding/payouts, monitoring, incident response, and compliance still need provider- and region-specific implementation.
+The app now persists login sessions in SQLite instead of Express's in-memory default, rejects short session secrets in production, supports an explicitly configured trusted-proxy hop count, and exposes `/health/live` and `/health/ready` probes. Run `npm run backup` to make a consistent SQLite snapshot with `VACUUM INTO`; the command verifies database integrity and foreign-key consistency, and refuses to overwrite an existing file. This is a manual local backup only: production still needs scheduled, encrypted offsite backups and tested restore procedures. The app is currently a single SQLite-backed deployment; the requested AWS microservices are a target architecture and have not yet been implemented or deployed. See Section 1.1 for the service ownership, AWS mapping, prerequisites, and build gates.
 
 For each code change, use this local development/check pipeline:
 
