@@ -13,6 +13,8 @@ This directory defines an **un-deployed infrastructure foundation** for the mark
 
 The first Postgres database is a **migration bridge**, not a final design for the selected microservices architecture. Before services use production data, give each service database and credentials it owns; never let one service directly write another service's tables. The old SQLite app has not been switched to this database.
 
+An offline, tested migration rehearsal from the existing SQLite schema into a disposable PostgreSQL database is documented in the root `README.md`. It does not require or create AWS infrastructure. The app still uses SQLite and must not be pointed at this RDS schema until its repository/database adapter is implemented and tested.
+
 ## Local checks only
 
 Requires Node.js 22 or later and npm. From this directory:

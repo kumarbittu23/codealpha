@@ -51,6 +51,25 @@ Hosting checks can use `GET /health/live` for process liveness and `GET /health/
 
 An initial AWS CDK scaffold is in [infra/cdk/](./infra/cdk/). It targets `ap-south-1`; see its README for exactly which resources are described, how to run local synthesis, and deployment cost warnings. Do not run `cdk deploy` until the AWS owner sets a hard monthly cap and reviews the change set. The current Express/SQLite application is not connected to this infrastructure.
 
+### PostgreSQL migration rehearsal
+
+`database/postgresql/001-initial-schema.sql` and `database/postgresql/migrate-sqlite.js` define a one-time migration rehearsal for a **disposable, empty PostgreSQL database**. It opens the SQLite source read-only in a consistent snapshot, checks SQLite integrity and foreign keys, copies all 15 marketplace tables in one PostgreSQL transaction, verifies every row count, advances identity sequences, and rolls back on an error. Login sessions are intentionally excluded, so users must sign in again after any future cutover.
+
+The migration does not change the running app, switch its database, create an AWS database, or split data into service-owned databases. Test the script against a disposable PostgreSQL instance first; do not point it at production or a database that contains needed data.
+
+```powershell
+$env:DATABASE_PATH = "D:\path\to\copy-of-store.sqlite"
+$credential = Get-Credential -UserName "migration_user" -Message "Disposable PostgreSQL credentials"
+$env:PGUSER = $credential.UserName
+$env:PGPASSWORD = $credential.GetNetworkCredential().Password
+$env:MIGRATION_DATABASE_URL = "postgresql://HOST:5432/DISPOSABLE_DATABASE?sslmode=require"
+npm run migrate:postgres -- --confirm-empty-target
+Remove-Item Env:DATABASE_PATH, Env:MIGRATION_DATABASE_URL, Env:PGUSER, Env:PGPASSWORD
+$credential = $null
+```
+
+Use a sanitized database copy and a temporary database user with access only to the disposable target. Do not paste a real connection URL into chat or commit it to files. The explicit flag confirms the target is disposable; the script independently refuses any PostgreSQL database that already contains a table. A real RDS migration rehearsal still requires an approved budget and a provisioned target.
+
 ### Create a database backup
 
 Stop writes if practical, then run `npm run backup` to create and verify a consistent SQLite snapshot under the ignored `backups/` folder. Or specify a destination that does not already exist:
