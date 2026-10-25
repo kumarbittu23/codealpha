@@ -61,6 +61,20 @@ function createPostgresClient(database) {
   };
 }
 
+function createCorruptingPostgresClient(database) {
+  const client = createPostgresClient(database);
+  return {
+    ...client,
+    async query(text, values = []) {
+      if (text.startsWith('INSERT INTO "products"')) {
+        values = [...values];
+        values[3] = "different value with the same row count";
+      }
+      return client.query(text, values);
+    }
+  };
+}
+
 test("SQLite migration rehearsal copies relational data and advances identity sequences", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "corner-pg-migration-"));
   const sourcePath = await createSourceDatabase(directory);
@@ -148,4 +162,27 @@ test("migration requires explicit confirmation before contacting PostgreSQL", as
     /confirm-empty-target/i
   );
   assert.equal(clientCreated, false);
+});
+
+test("migration detects altered rows even when table row counts match", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "corner-pg-migration-"));
+  const sourcePath = await createSourceDatabase(directory);
+  const postgres = new PGlite();
+
+  try {
+    await assert.rejects(
+      migrateSqliteToPostgres({
+        sourcePath,
+        targetUrl: "postgres://migration-test",
+        confirmEmptyTarget: true,
+        clientFactory: () => createCorruptingPostgresClient(postgres)
+      }),
+      /checksum mismatch for products/i
+    );
+    const rolledBack = await postgres.query("SELECT to_regclass('public.users') AS table_name");
+    assert.equal(rolledBack.rows[0].table_name, null);
+  } finally {
+    await postgres.close();
+    await rm(directory, { recursive: true, force: true });
+  }
 });

@@ -1,3 +1,4 @@
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
@@ -27,6 +28,25 @@ function quoteIdentifier(identifier) {
   return `"${identifier.replaceAll('"', '""')}"`;
 }
 
+function createRowHash() {
+  const hash = crypto.createHash("sha256");
+  return {
+    add(row, columns) {
+      const normalized = columns.map((column) => {
+        const value = row[column];
+        if (value === null || value === undefined) return null;
+        if (Buffer.isBuffer(value)) return { base64: value.toString("base64") };
+        return String(value);
+      });
+      hash.update(JSON.stringify(normalized));
+      hash.update("\n");
+    },
+    digest() {
+      return hash.digest("hex");
+    }
+  };
+}
+
 function inspectSource(source) {
   const integrity = source.prepare("PRAGMA integrity_check").get();
   if (integrity.integrity_check !== "ok") {
@@ -45,11 +65,18 @@ function inspectSource(source) {
     throw new Error(`Source database is missing required table(s): ${missingTables.join(", ")}.`);
   }
 
-  const counts = new Map();
+  const tables = new Map();
   for (const table of tableOrder) {
-    counts.set(table, source.prepare(`SELECT COUNT(*) AS count FROM ${quoteIdentifier(table)}`).get().count);
+    const columns = source.prepare(`PRAGMA table_info(${quoteIdentifier(table)})`).all();
+    const primaryKey = columns.filter((column) => column.pk).sort((left, right) => left.pk - right.pk);
+    if (!primaryKey.length) throw new Error(`Source table ${table} does not have a primary key.`);
+    tables.set(table, {
+      count: source.prepare(`SELECT COUNT(*) AS count FROM ${quoteIdentifier(table)}`).get().count,
+      columns: columns.map((column) => column.name),
+      primaryKey: primaryKey.map((column) => column.name)
+    });
   }
-  return counts;
+  return tables;
 }
 
 async function migrateSqliteToPostgres({
@@ -92,29 +119,61 @@ async function migrateSqliteToPostgres({
     await client.query("SET CONSTRAINTS ALL DEFERRED");
 
     for (const table of tableOrder) {
-      const columns = source.prepare(`PRAGMA table_info(${quoteIdentifier(table)})`).all().map((column) => column.name);
-      const select = source.prepare(`SELECT * FROM ${quoteIdentifier(table)}`);
-      const rows = select.all();
-      if (!rows.length) continue;
+      const { columns, primaryKey } = sourceCounts.get(table);
       const columnList = columns.map(quoteIdentifier).join(", ");
-      const placeholders = columns.map((_, index) => `$${index + 1}`).join(", ");
-      const insert = `INSERT INTO ${quoteIdentifier(table)} (${columnList}) VALUES (${placeholders})`;
-      for (const row of rows) {
-        await client.query(insert, columns.map((column) => row[column]));
+      const orderBy = primaryKey.map(quoteIdentifier).join(", ");
+      const sourceHash = createRowHash();
+      let values = [];
+      let rowCount = 0;
+      const flushBatch = async () => {
+        if (!values.length) return;
+        const rowPlaceholders = values.map((_, rowIndex) => {
+          const start = rowIndex * columns.length;
+          return `(${columns.map((_, columnIndex) => `$${start + columnIndex + 1}`).join(", ")})`;
+        });
+        await client.query(
+          `INSERT INTO ${quoteIdentifier(table)} (${columnList}) VALUES ${rowPlaceholders.join(", ")}`,
+          values.flat()
+        );
+        values = [];
+      };
+      const sourceRows = source.prepare(
+        `SELECT * FROM ${quoteIdentifier(table)} ORDER BY ${orderBy}`
+      ).iterate();
+      for (const row of sourceRows) {
+        sourceHash.add(row, columns);
+        values.push(columns.map((column) => row[column]));
+        rowCount += 1;
+        if (values.length >= 250) await flushBatch();
       }
-    }
+      await flushBatch();
+      if (rowCount !== sourceCounts.get(table).count) {
+        throw new Error(`Source row count changed during migration for ${table}.`);
+      }
 
-    for (const table of tableOrder) {
-      const result = await client.query(`SELECT COUNT(*) AS count FROM ${quoteIdentifier(table)}`);
-      const targetCount = Number(result.rows[0].count);
-      const sourceCount = sourceCounts.get(table);
-      if (targetCount !== sourceCount) {
-        throw new Error(`Row-count mismatch for ${table}: source ${sourceCount}, target ${targetCount}.`);
+      const targetHash = createRowHash();
+      let offset = 0;
+      let targetCount = 0;
+      while (true) {
+        const result = await client.query(
+          `SELECT ${columnList} FROM ${quoteIdentifier(table)} ORDER BY ${orderBy} LIMIT $1 OFFSET $2`,
+          [250, offset]
+        );
+        if (!result.rows.length) break;
+        for (const row of result.rows) targetHash.add(row, columns);
+        targetCount += result.rows.length;
+        offset += result.rows.length;
+      }
+      if (targetCount !== rowCount) {
+        throw new Error(`Row-count mismatch for ${table}: source ${rowCount}, target ${targetCount}.`);
+      }
+      if (targetHash.digest() !== sourceHash.digest()) {
+        throw new Error(`Data checksum mismatch for ${table}; migration was rolled back.`);
       }
     }
 
     for (const table of identityTables) {
-      if (!sourceCounts.get(table)) continue;
+      if (!sourceCounts.get(table).count) continue;
       await client.query(
         `SELECT setval(pg_get_serial_sequence($1, 'id'), (SELECT MAX(id) FROM ${quoteIdentifier(table)}), true)`,
         [table]
@@ -125,7 +184,7 @@ async function migrateSqliteToPostgres({
     await client.query("COMMIT");
     transactionStarted = false;
     source.exec("COMMIT");
-    return Object.fromEntries(sourceCounts);
+    return Object.fromEntries([...sourceCounts].map(([table, details]) => [table, details.count]));
   } catch (error) {
     if (connected && transactionStarted) {
       try {

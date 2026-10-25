@@ -53,7 +53,7 @@ An initial AWS CDK scaffold is in [infra/cdk/](./infra/cdk/). It targets `ap-sou
 
 ### PostgreSQL migration rehearsal
 
-`database/postgresql/001-initial-schema.sql` and `database/postgresql/migrate-sqlite.js` define a one-time migration rehearsal for a **disposable, empty PostgreSQL database**. It opens the SQLite source read-only in a consistent snapshot, checks SQLite integrity and foreign keys, copies all 15 marketplace tables in one PostgreSQL transaction, verifies every row count, advances identity sequences, and rolls back on an error. Login sessions are intentionally excluded, so users must sign in again after any future cutover.
+`database/postgresql/001-initial-schema.sql` and `database/postgresql/migrate-sqlite.js` define a one-time migration rehearsal for a **disposable, empty PostgreSQL database**. It opens the SQLite source read-only in a consistent snapshot, checks SQLite integrity and foreign keys, streams rows in bounded batches to all 15 marketplace tables in one PostgreSQL transaction, compares row counts and SHA-256 data checksums, advances identity sequences, and rolls back on any mismatch or error. Login sessions are intentionally excluded, so users must sign in again after any future cutover.
 
 The migration does not change the running app, switch its database, create an AWS database, or split data into service-owned databases. Test the script against a disposable PostgreSQL instance first; do not point it at production or a database that contains needed data.
 
