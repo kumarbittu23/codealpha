@@ -90,6 +90,8 @@ test("SQLite migration rehearsal copies relational data and advances identity se
     assert.equal(counts.users, 1);
     assert.equal(counts.orders, 1);
     assert.equal(counts.marketplace_settings, 1);
+    const sessions = await postgres.query("SELECT COUNT(*) AS count FROM sessions");
+    assert.equal(sessions.rows[0].count, 0, "SQLite sessions are intentionally invalidated on a future cutover");
 
     const migratedProduct = await postgres.query(`
       SELECT id, price_paise, stock FROM products WHERE id = 41
