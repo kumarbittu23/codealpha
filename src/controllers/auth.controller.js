@@ -22,7 +22,7 @@ function createAuthController(isProduction) {
         if (result.error) return response.status(400).json({ error: result.error });
         startSession(request, response, next, result.user, 201);
       } catch (error) {
-        if (error.code === "SQLITE_CONSTRAINT_UNIQUE") {
+        if (error.code === "SQLITE_CONSTRAINT_UNIQUE" || error.code === "23505") {
           return response.status(409).json({ error: "An account with that email already exists." });
         }
         next(error);
