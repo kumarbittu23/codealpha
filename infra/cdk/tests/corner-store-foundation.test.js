@@ -12,7 +12,10 @@ test("foundation provisions private encrypted database, private media, and resil
     natGatewayCount: 2,
     accountDatabaseBackend: "sqlite",
     postgresAccountCutover: "",
-    postgresMarketplaceCutover: ""
+    postgresMarketplaceCutover: "",
+    productionDomain: "cornerstore.com",
+    budgetAlertEmail: "kumarbittup23@gmail.com",
+    monthlyBudgetUsd: 100
   });
   const template = Template.fromStack(stack);
 
@@ -35,6 +38,10 @@ test("foundation provisions private encrypted database, private media, and resil
   });
   template.hasResourceProperties("AWS::SQS::Queue", {
     SqsManagedSseEnabled: true
+  });
+  template.resourceCountIs("AWS::Budgets::Budget", 1);
+  template.hasResourceProperties("AWS::Budgets::Budget", {
+    Budget: Match.objectLike({ BudgetLimit: { Amount: 100, Unit: "USD" } })
   });
   template.resourceCountIs("AWS::ECS::Service", 1);
   template.resourceCountIs("AWS::ElasticLoadBalancingV2::LoadBalancer", 1);

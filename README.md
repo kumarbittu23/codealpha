@@ -43,6 +43,10 @@ GitHub Actions automatically installs dependencies, checks JavaScript syntax, an
 
 The workflow also builds and tests the AWS CDK foundation and synthesizes its development template. This is template validation only; it does not access AWS or deploy resources.
 
+### Production prerequisites prepared
+
+The first production configuration uses AWS region `ap-south-1`, domain `cornerstore.com`, a `$100 USD` monthly cost budget, and alert email `kumarbittup23@gmail.com`. The CDK template creates the budget notifications when infrastructure is deployed, but AWS resources are not created until deployment is explicitly approved. Domain ownership, Route 53 DNS, SSL certificates, and a verified AWS account still require separate AWS console/registrar actions.
+
 ### Manual ECS deployment pipeline
 
 The CDK foundation creates an ECS Fargate application service behind an internet-facing Application Load Balancer, with the session secret managed by Secrets Manager. The `Deploy application` workflow is an approval-gated `workflow_dispatch` deployment. It authenticates through AWS IAM OIDC, builds the application Docker image, pushes it to the immutable `corner-store/application` ECR repository, registers an ECS task revision, and waits for the service to stabilize. AWS resources are not created by CI.

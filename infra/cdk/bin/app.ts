@@ -14,6 +14,10 @@ const natGatewayCount = Number(app.node.tryGetContext("natGateways") ?? (environ
 const accountDatabaseBackend = app.node.tryGetContext("accountDatabaseBackend") || "sqlite";
 const postgresAccountCutover = app.node.tryGetContext("postgresAccountCutover") || "";
 const postgresMarketplaceCutover = app.node.tryGetContext("postgresMarketplaceCutover") || "";
+const productionDomain = app.node.tryGetContext("productionDomain") || "cornerstore.com";
+const budgetAlertEmail = app.node.tryGetContext("budgetAlertEmail") || "kumarbittup23@gmail.com";
+const monthlyBudgetUsd = Number(app.node.tryGetContext("monthlyBudgetUsd") ?? 100);
+if (!Number.isSafeInteger(monthlyBudgetUsd) || monthlyBudgetUsd < 1) throw new Error("monthlyBudgetUsd must be a positive whole number.");
 if (!["sqlite", "postgresql"].includes(accountDatabaseBackend)) throw new Error("accountDatabaseBackend must be sqlite or postgresql.");
 if (!["", "complete"].includes(postgresAccountCutover) || !["", "complete"].includes(postgresMarketplaceCutover)) {
   throw new Error("PostgreSQL cutover values must be empty or complete.");
@@ -34,5 +38,8 @@ new CornerStoreFoundationStack(app, `CornerStore-${environmentName}`, {
   natGatewayCount,
   accountDatabaseBackend,
   postgresAccountCutover,
-  postgresMarketplaceCutover
+  postgresMarketplaceCutover,
+  productionDomain,
+  budgetAlertEmail,
+  monthlyBudgetUsd
 });

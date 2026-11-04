@@ -1,5 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import { Duration, RemovalPolicy, Stack, StackProps } from "aws-cdk-lib";
+import * as budgets from "aws-cdk-lib/aws-budgets";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as ecr from "aws-cdk-lib/aws-ecr";
 import * as ecs from "aws-cdk-lib/aws-ecs";
@@ -16,6 +17,9 @@ interface CornerStoreFoundationStackProps extends StackProps {
   accountDatabaseBackend: "sqlite" | "postgresql";
   postgresAccountCutover: "" | "complete";
   postgresMarketplaceCutover: "" | "complete";
+  productionDomain: string;
+  budgetAlertEmail: string;
+  monthlyBudgetUsd: number;
 }
 
 const serviceNames = [
@@ -39,6 +43,34 @@ export class CornerStoreFoundationStack extends Stack {
     super(scope, id, props);
 
     const isProduction = props.environmentName === "production";
+    new budgets.CfnBudget(this, "MonthlyCostBudget", {
+      budget: {
+        budgetName: `corner-store-${props.environmentName}`,
+        budgetType: "COST",
+        timeUnit: "MONTHLY",
+        budgetLimit: { amount: props.monthlyBudgetUsd, unit: "USD" }
+      },
+      notificationsWithSubscribers: [
+        {
+          notification: {
+            notificationType: "ACTUAL",
+            comparisonOperator: "GREATER_THAN",
+            threshold: 80,
+            thresholdType: "PERCENTAGE"
+          },
+          subscribers: [{ subscriptionType: "EMAIL", address: props.budgetAlertEmail }]
+        },
+        {
+          notification: {
+            notificationType: "ACTUAL",
+            comparisonOperator: "GREATER_THAN",
+            threshold: 100,
+            thresholdType: "PERCENTAGE"
+          },
+          subscribers: [{ subscriptionType: "EMAIL", address: props.budgetAlertEmail }]
+        }
+      ]
+    });
     const vpc = new ec2.Vpc(this, "ApplicationVpc", {
       maxAzs: 2,
       natGateways: props.natGatewayCount,
@@ -238,5 +270,7 @@ export class CornerStoreFoundationStack extends Stack {
     new cdk.CfnOutput(this, "ApplicationTaskFamily", {
       value: applicationService.taskDefinition.family
     });
+    new cdk.CfnOutput(this, "ProductionDomain", { value: props.productionDomain });
+    new cdk.CfnOutput(this, "MonthlyBudgetUsd", { value: String(props.monthlyBudgetUsd) });
   }
 }
