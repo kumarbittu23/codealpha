@@ -8,6 +8,17 @@ const { DatabaseSync } = require("node:sqlite");
 const test = require("node:test");
 
 const backupScript = path.join(__dirname, "..", "src", "backup-database.js");
+const restoreScript = path.join(__dirname, "..", "src", "restore-database.js");
+
+function requiredSchema(database) {
+  database.exec(`
+    CREATE TABLE users (id INTEGER PRIMARY KEY);
+    CREATE TABLE sellers (id INTEGER PRIMARY KEY);
+    CREATE TABLE products (id INTEGER PRIMARY KEY);
+    CREATE TABLE orders (id INTEGER PRIMARY KEY);
+    CREATE TABLE order_items (id INTEGER PRIMARY KEY);
+  `);
+}
 
 test("database backup captures committed WAL data and refuses to overwrite", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "corner-database-backup-"));
@@ -45,6 +56,49 @@ test("database backup captures committed WAL data and refuses to overwrite", asy
     assert.equal(fs.existsSync(sourcePath), true);
   } finally {
     source.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("database restore verifier accepts valid backups and rejects common failures", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "corner-database-restore-"));
+  const validPath = path.join(directory, "valid.sqlite");
+  const missingTablePath = path.join(directory, "missing-table.sqlite");
+  const corruptPath = path.join(directory, "corrupt.sqlite");
+
+  const valid = new DatabaseSync(validPath);
+  requiredSchema(valid);
+  valid.prepare("INSERT INTO users (id) VALUES (?)").run(1);
+  valid.close();
+
+  const missingTable = new DatabaseSync(missingTablePath);
+  missingTable.exec(`
+    CREATE TABLE users (id INTEGER PRIMARY KEY);
+    CREATE TABLE sellers (id INTEGER PRIMARY KEY);
+    CREATE TABLE products (id INTEGER PRIMARY KEY);
+    CREATE TABLE orders (id INTEGER PRIMARY KEY);
+  `);
+  missingTable.close();
+
+  await fs.promises.writeFile(corruptPath, "not a sqlite database");
+
+  try {
+    const validResult = spawnSync(process.execPath, [restoreScript, validPath], { encoding: "utf8" });
+    assert.equal(validResult.status, 0, validResult.stderr);
+    assert.match(validResult.stdout, /backup verified for restore/i);
+    assert.match(validResult.stdout, /users: 1/i);
+
+    const missingFile = spawnSync(process.execPath, [restoreScript, path.join(directory, "missing.sqlite")], { encoding: "utf8" });
+    assert.notEqual(missingFile.status, 0);
+    assert.match(missingFile.stderr, /does not exist/i);
+
+    const missingTables = spawnSync(process.execPath, [restoreScript, missingTablePath], { encoding: "utf8" });
+    assert.notEqual(missingTables.status, 0);
+    assert.match(missingTables.stderr, /missing required tables: order_items/i);
+
+    const corrupt = spawnSync(process.execPath, [restoreScript, corruptPath], { encoding: "utf8" });
+    assert.notEqual(corrupt.status, 0);
+  } finally {
     await rm(directory, { recursive: true, force: true });
   }
 });

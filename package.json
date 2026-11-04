@@ -11,6 +11,7 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "backup": "node src/backup-database.js",
+    "verify:restore": "node src/restore-database.js",
     "postgres:schema": "node database/postgresql/apply-schema.js",
     "migrate:postgres": "node database/postgresql/migrate-sqlite.js",
     "create-admin": "node src/create-admin.js",
