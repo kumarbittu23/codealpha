@@ -14,6 +14,7 @@ interface CornerStoreFoundationStackProps extends StackProps {
 }
 
 const serviceNames = [
+  "application",
   "identity",
   "catalog",
   "search",

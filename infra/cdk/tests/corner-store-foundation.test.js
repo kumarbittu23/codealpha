@@ -38,5 +38,5 @@ test("foundation provisions private encrypted database, private media, and resil
     Match.objectLike({ Name: "containerInsights", Value: "enabled" })
     ])
   });
-  template.resourceCountIs("AWS::ECR::Repository", 12);
+  template.resourceCountIs("AWS::ECR::Repository", 13);
 });

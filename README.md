@@ -43,6 +43,12 @@ GitHub Actions automatically installs dependencies, checks JavaScript syntax, an
 
 The workflow also builds and tests the AWS CDK foundation and synthesizes its development template. This is template validation only; it does not access AWS or deploy resources.
 
+### Manual ECS deployment pipeline
+
+The `Deploy application` workflow is an approval-gated `workflow_dispatch` deployment. It authenticates through AWS IAM OIDC, builds the application Docker image, pushes it to the immutable `corner-store/application` ECR repository, registers an ECS task revision, and waits for the service to stabilize. AWS resources are not created by CI.
+
+Before first deployment, create the CDK foundation, configure an AWS IAM role trusted by GitHub Actions, and set the GitHub environment secret `AWS_DEPLOY_ROLE_ARN`. Configure environment variables `AWS_REGION`, `ECS_CLUSTER`, `ECS_SERVICE`, and `ECS_TASK_FAMILY`. Store runtime application secrets in AWS Secrets Manager or ECS task configuration rather than repository variables. For each environment, require a protected GitHub environment approval and verify the AWS account and IAM permissions before manually running the workflow.
+
 ## Production groundwork
 
 Sessions are stored in the configured SQLite database and survive application restarts. Production startup requires `SESSION_SECRET` to contain at least 32 characters. Generate a private random value with `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"` and provide it through the hosting provider's secret manager; do not commit it. If TLS terminates at one trusted reverse proxy, set `TRUST_PROXY_HOPS=1`; configure the exact number of trusted proxies for your host rather than trusting arbitrary forwarded headers.

@@ -1,0 +1,72 @@
+name: Deploy application
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Deployment environment
+        required: true
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: Build and deploy to ECS
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-south-1' }}
+
+      - name: Log in to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push immutable application image
+        id: build
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t "$REGISTRY/corner-store/application:$IMAGE_TAG" .
+          docker push "$REGISTRY/corner-store/application:$IMAGE_TAG"
+          echo "image=$REGISTRY/corner-store/application:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Require ECS deployment variables
+        env:
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+          ECS_SERVICE: ${{ vars.ECS_SERVICE }}
+          ECS_TASK_FAMILY: ${{ vars.ECS_TASK_FAMILY }}
+        run: |
+          if [ -z "$ECS_CLUSTER" ] || [ -z "$ECS_SERVICE" ] || [ -z "$ECS_TASK_FAMILY" ]; then
+            echo "Image was pushed successfully, but ECS deployment variables are not configured." >&2
+            echo "Set ECS_CLUSTER, ECS_SERVICE, and ECS_TASK_FAMILY as GitHub environment variables." >&2
+            exit 1
+          fi
+
+      - name: Deploy new ECS task revision
+        env:
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+          ECS_SERVICE: ${{ vars.ECS_SERVICE }}
+          ECS_TASK_FAMILY: ${{ vars.ECS_TASK_FAMILY }}
+          IMAGE: ${{ steps.build.outputs.image }}
+        run: |
+          task_definition=$(aws ecs describe-task-definition --task-definition "$ECS_TASK_FAMILY" --query taskDefinition --output json)
+          new_task_definition=$(python3 -c 'import json,sys; d=json.load(sys.stdin); d={k:d.get(k) for k in ("family","taskRoleArn","executionRoleArn","networkMode","containerDefinitions","volumes","placementConstraints","requiresCompatibilities","cpu","memory","runtimePlatform","ephemeralStorage") if d.get(k) is not None}; d["containerDefinitions"][0]["image"]=sys.argv[1]; print(json.dumps(d))' "$IMAGE" <<< "$task_definition")
+          aws ecs register-task-definition --cli-input-json "$new_task_definition" >/tmp/task-definition.json
+          revision=$(python3 -c 'import json; print(json.load(open("/tmp/task-definition.json"))["taskDefinition"]["revision"])')
+          aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" --task-definition "$ECS_TASK_FAMILY:$revision"
+          aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"

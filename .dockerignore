@@ -1,0 +1,12 @@
+node_modules
+.git
+.github
+infra
+coverage
+backups
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.env
+.env.*
+!/.env.example
