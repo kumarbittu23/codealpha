@@ -9,6 +9,7 @@ const test = require("node:test");
 
 const backupScript = path.join(__dirname, "..", "src", "backup-database.js");
 const restoreScript = path.join(__dirname, "..", "src", "restore-database.js");
+const backupAndVerifyScript = path.join(__dirname, "..", "src", "backup-and-verify-database.js");
 
 function requiredSchema(database) {
   database.exec(`
@@ -56,6 +57,27 @@ test("database backup captures committed WAL data and refuses to overwrite", asy
     assert.equal(fs.existsSync(sourcePath), true);
   } finally {
     source.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("combined backup procedure creates and verifies a restorable snapshot", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "corner-backup-procedure-"));
+  const sourcePath = path.join(directory, "source.sqlite");
+  const backupPath = path.join(directory, "snapshot.sqlite");
+  const source = new DatabaseSync(sourcePath);
+  requiredSchema(source);
+  source.close();
+
+  try {
+    const result = spawnSync(process.execPath, [backupAndVerifyScript, backupPath], {
+      encoding: "utf8",
+      env: { ...process.env, DATABASE_PATH: sourcePath }
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /backup and restore verification completed successfully/i);
+    assert.match(result.stdout, /products: 0/i);
+  } finally {
     await rm(directory, { recursive: true, force: true });
   }
 });
