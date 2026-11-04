@@ -1,11 +1,11 @@
 const crypto = require("node:crypto");
-const authService = require("../services/auth.service");
+const defaultAuthService = require("../services/auth.service");
 
 function publicUser(user) {
   return { id: user.id, name: user.name, email: user.email, role: user.role };
 }
 
-function createAuthController(isProduction) {
+function createAuthController(isProduction, authService = defaultAuthService) {
   function startSession(request, response, next, user, status = 200) {
     request.session.regenerate((error) => {
       if (error) return next(error);

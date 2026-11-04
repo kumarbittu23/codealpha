@@ -5,12 +5,13 @@ const path = require("node:path");
 const database = require("./config/database");
 const csrfProtection = require("./middleware/csrf");
 const errorHandler = require("./middleware/errorHandler");
-const SQLiteSessionStore = require("./middleware/sqliteSessionStore");
+const { createAccountStore } = require("./config/account-store");
 const createPagesRouter = require("./routes/pages.routes");
 const createAuthRouter = require("./routes/auth.routes");
 const marketplaceRoutes = require("./routes/marketplace.routes");
 
 const app = express();
+const accountStore = createAccountStore({ database });
 const isProduction = process.env.NODE_ENV === "production";
 const trustProxyHops = process.env.TRUST_PROXY_HOPS === undefined ? 0 : Number(process.env.TRUST_PROXY_HOPS);
 
@@ -44,7 +45,7 @@ app.use((request, response, next) => {
 app.use(session({
   name: "corner.sid",
   secret: process.env.SESSION_SECRET || "development-only-change-this-secret",
-  store: new SQLiteSessionStore(database),
+  store: accountStore.sessionStore,
   resave: false,
   saveUninitialized: false,
   cookie: {
@@ -57,10 +58,12 @@ app.use(session({
 app.get("/health/live", (request, response) => {
   response.json({ status: "ok" });
 });
-app.get("/health/ready", (request, response, next) => {
+app.get("/health/ready", async (request, response, next) => {
   try {
-    database.prepare("SELECT 1").get();
-    response.json({ status: "ready" });
+    await accountStore.check();
+    response.json(accountStore.backend === "postgresql"
+      ? { status: "ready", accountDatabase: accountStore.backend }
+      : { status: "ready" });
   } catch (error) {
     next(error);
   }
@@ -68,7 +71,7 @@ app.get("/health/ready", (request, response, next) => {
 const publicDirectory = path.join(__dirname, "..", "public");
 app.use(createPagesRouter(publicDirectory));
 app.use(express.static(publicDirectory));
-app.use(createAuthRouter({ csrfProtection, isProduction }));
+app.use(createAuthRouter({ csrfProtection, isProduction, authService: accountStore.authService }));
 
 app.use(marketplaceRoutes);
 
