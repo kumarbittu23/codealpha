@@ -4,6 +4,7 @@ const usersRepository = require("../repositories/users.repository");
 const createPostgresUsersRepository = require("../repositories/postgres-users.repository");
 const PostgresSessionStore = require("../middleware/postgresSessionStore");
 const SQLiteSessionStore = require("../middleware/sqliteSessionStore");
+const { requireMarketplaceRepositoriesCutover } = require("./postgres-marketplace-cutover");
 
 function createSqliteAccountStore(database, authService) {
   return {
@@ -49,7 +50,7 @@ function resolvePostgresConnectionUrl() {
   return `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(database)}${query}`;
 }
 
-function createAccountStore({ database, authService } = {}) {
+function createAccountStore({ database, authService, marketplaceRepositoriesReady } = {}) {
   const backend = process.env.ACCOUNT_DATABASE_BACKEND || "sqlite";
   if (backend === "sqlite") {
     return createSqliteAccountStore(database, authService);
@@ -58,6 +59,7 @@ function createAccountStore({ database, authService } = {}) {
     if (process.env.POSTGRES_ACCOUNT_CUTOVER !== "complete" || process.env.POSTGRES_MARKETPLACE_CUTOVER !== "complete") {
       throw new Error("PostgreSQL runtime is locked until both account and marketplace cutover guards pass their tests.");
     }
+    if (marketplaceRepositoriesReady !== true) requireMarketplaceRepositoriesCutover();
     const connectionUrl = resolvePostgresConnectionUrl();
     if (!connectionUrl) {
       throw new Error("DATABASE_URL or PGHOST, PGDATABASE, PGUSER, and PGPASSWORD must be set for PostgreSQL.");

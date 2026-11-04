@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { createAccountStore } = require("../src/config/account-store");
+const { inspectMarketplaceCutover } = require("../src/config/postgres-marketplace-cutover");
 
 function temporaryEnvironment(values) {
   const previous = {};
@@ -66,9 +67,28 @@ test("PostgreSQL account store accepts generated-secret connection fields", asyn
     PGSSLMODE: "require"
   });
   try {
-    const store = createAccountStore({ database: {} });
+    const store = createAccountStore({ database: {}, marketplaceRepositoriesReady: true });
     assert.equal(store.backend, "postgresql");
     await store.close();
+  } finally {
+    restore();
+  }
+});
+
+test("PostgreSQL runtime reports incomplete marketplace repository cutover", () => {
+  const restore = temporaryEnvironment({
+    ACCOUNT_DATABASE_BACKEND: "postgresql",
+    POSTGRES_ACCOUNT_CUTOVER: "complete",
+    POSTGRES_MARKETPLACE_CUTOVER: "complete",
+    DATABASE_URL: "postgresql://unused"
+  });
+  try {
+    const inspection = inspectMarketplaceCutover();
+    assert.equal(inspection.ready, false);
+    assert.throws(
+      () => createAccountStore({ database: {} }),
+      /marketplace repositories are incomplete/
+    );
   } finally {
     restore();
   }
@@ -77,7 +97,7 @@ test("PostgreSQL account store accepts generated-secret connection fields", asyn
 test("PostgreSQL account store requires DATABASE_URL or generated-secret fields", () => {
   const restore = temporaryEnvironment({ ACCOUNT_DATABASE_BACKEND: "postgresql", POSTGRES_ACCOUNT_CUTOVER: "complete", POSTGRES_MARKETPLACE_CUTOVER: "complete", DATABASE_URL: undefined, PGHOST: undefined, PGDATABASE: undefined, PGUSER: undefined, PGPASSWORD: undefined });
   try {
-    assert.throws(() => createAccountStore({ database: {} }), /DATABASE_URL|PGHOST/);
+    assert.throws(() => createAccountStore({ database: {}, marketplaceRepositoriesReady: true }), /DATABASE_URL|PGHOST/);
   } finally {
     restore();
   }
