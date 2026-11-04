@@ -39,8 +39,29 @@ test("account store defaults to SQLite and rejects unknown backends", async () =
   }
 });
 
-test("PostgreSQL account store requires DATABASE_URL", () => {
-  const restore = temporaryEnvironment({ ACCOUNT_DATABASE_BACKEND: "postgresql", POSTGRES_ACCOUNT_CUTOVER: "complete", DATABASE_URL: undefined });
+test("PostgreSQL account store accepts generated-secret connection fields", async () => {
+  const restore = temporaryEnvironment({
+    ACCOUNT_DATABASE_BACKEND: "postgresql",
+    POSTGRES_ACCOUNT_CUTOVER: "complete",
+    DATABASE_URL: undefined,
+    PGHOST: "database.internal",
+    PGPORT: "5432",
+    PGDATABASE: "corner_store",
+    PGUSER: "corner_admin",
+    PGPASSWORD: "test password",
+    PGSSLMODE: "require"
+  });
+  try {
+    const store = createAccountStore({ database: {} });
+    assert.equal(store.backend, "postgresql");
+    await store.close();
+  } finally {
+    restore();
+  }
+});
+
+test("PostgreSQL account store requires DATABASE_URL or generated-secret fields", () => {
+  const restore = temporaryEnvironment({ ACCOUNT_DATABASE_BACKEND: "postgresql", POSTGRES_ACCOUNT_CUTOVER: "complete", DATABASE_URL: undefined, PGHOST: undefined, PGDATABASE: undefined, PGUSER: undefined, PGPASSWORD: undefined });
   try {
     assert.throws(() => createAccountStore({ database: {} }), /DATABASE_URL/);
   } finally {

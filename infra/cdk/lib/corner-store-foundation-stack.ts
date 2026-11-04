@@ -178,10 +178,16 @@ export class CornerStoreFoundationStack extends Stack {
         containerPort: 3000,
         environment: {
           PORT: "3000",
-          TRUST_PROXY_HOPS: "1"
+          TRUST_PROXY_HOPS: "1",
+          PGSSLMODE: "require"
         },
         secrets: {
-          SESSION_SECRET: ecs.Secret.fromSecretsManager(sessionSecret, "SESSION_SECRET")
+          SESSION_SECRET: ecs.Secret.fromSecretsManager(sessionSecret, "SESSION_SECRET"),
+          PGHOST: ecs.Secret.fromSecretsManager(database.secret!, "host"),
+          PGPORT: ecs.Secret.fromSecretsManager(database.secret!, "port"),
+          PGUSER: ecs.Secret.fromSecretsManager(database.secret!, "username"),
+          PGPASSWORD: ecs.Secret.fromSecretsManager(database.secret!, "password"),
+          PGDATABASE: ecs.Secret.fromSecretsManager(database.secret!, "dbname")
         }
       },
       healthCheckGracePeriod: Duration.seconds(60)

@@ -36,6 +36,19 @@ function createPostgresAccountStore(databaseUrl, authService) {
   };
 }
 
+function resolvePostgresConnectionUrl() {
+  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
+  const host = process.env.PGHOST;
+  const database = process.env.PGDATABASE;
+  const user = process.env.PGUSER;
+  const password = process.env.PGPASSWORD;
+  if (!host || !database || !user || !password) return null;
+  const port = process.env.PGPORT || "5432";
+  const sslMode = process.env.PGSSLMODE;
+  const query = sslMode ? `?sslmode=${encodeURIComponent(sslMode)}` : "";
+  return `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(database)}${query}`;
+}
+
 function createAccountStore({ database, authService } = {}) {
   const backend = process.env.ACCOUNT_DATABASE_BACKEND || "sqlite";
   if (backend === "sqlite") {
@@ -45,7 +58,11 @@ function createAccountStore({ database, authService } = {}) {
     if (process.env.POSTGRES_ACCOUNT_CUTOVER !== "complete") {
       throw new Error("PostgreSQL account runtime is locked until the complete marketplace database boundary passes its cutover tests.");
     }
-    return createPostgresAccountStore(process.env.DATABASE_URL, authService);
+    const connectionUrl = resolvePostgresConnectionUrl();
+    if (!connectionUrl) {
+      throw new Error("DATABASE_URL or PGHOST, PGDATABASE, PGUSER, and PGPASSWORD must be set for PostgreSQL.");
+    }
+    return createPostgresAccountStore(connectionUrl, authService);
   }
   throw new Error("ACCOUNT_DATABASE_BACKEND must be sqlite or postgresql.");
 }
