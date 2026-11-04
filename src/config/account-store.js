@@ -55,8 +55,8 @@ function createAccountStore({ database, authService } = {}) {
     return createSqliteAccountStore(database, authService);
   }
   if (backend === "postgresql") {
-    if (process.env.POSTGRES_ACCOUNT_CUTOVER !== "complete") {
-      throw new Error("PostgreSQL account runtime is locked until the complete marketplace database boundary passes its cutover tests.");
+    if (process.env.POSTGRES_ACCOUNT_CUTOVER !== "complete" || process.env.POSTGRES_MARKETPLACE_CUTOVER !== "complete") {
+      throw new Error("PostgreSQL runtime is locked until both account and marketplace cutover guards pass their tests.");
     }
     const connectionUrl = resolvePostgresConnectionUrl();
     if (!connectionUrl) {

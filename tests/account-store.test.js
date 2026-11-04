@@ -39,10 +39,24 @@ test("account store defaults to SQLite and rejects unknown backends", async () =
   }
 });
 
+test("PostgreSQL runtime rejects account-only cutover", () => {
+  const restore = temporaryEnvironment({
+    ACCOUNT_DATABASE_BACKEND: "postgresql",
+    POSTGRES_ACCOUNT_CUTOVER: "complete",
+    POSTGRES_MARKETPLACE_CUTOVER: undefined
+  });
+  try {
+    assert.throws(() => createAccountStore({ database: {} }), /marketplace cutover guards/);
+  } finally {
+    restore();
+  }
+});
+
 test("PostgreSQL account store accepts generated-secret connection fields", async () => {
   const restore = temporaryEnvironment({
     ACCOUNT_DATABASE_BACKEND: "postgresql",
     POSTGRES_ACCOUNT_CUTOVER: "complete",
+    POSTGRES_MARKETPLACE_CUTOVER: "complete",
     DATABASE_URL: undefined,
     PGHOST: "database.internal",
     PGPORT: "5432",
@@ -61,9 +75,9 @@ test("PostgreSQL account store accepts generated-secret connection fields", asyn
 });
 
 test("PostgreSQL account store requires DATABASE_URL or generated-secret fields", () => {
-  const restore = temporaryEnvironment({ ACCOUNT_DATABASE_BACKEND: "postgresql", POSTGRES_ACCOUNT_CUTOVER: "complete", DATABASE_URL: undefined, PGHOST: undefined, PGDATABASE: undefined, PGUSER: undefined, PGPASSWORD: undefined });
+  const restore = temporaryEnvironment({ ACCOUNT_DATABASE_BACKEND: "postgresql", POSTGRES_ACCOUNT_CUTOVER: "complete", POSTGRES_MARKETPLACE_CUTOVER: "complete", DATABASE_URL: undefined, PGHOST: undefined, PGDATABASE: undefined, PGUSER: undefined, PGPASSWORD: undefined });
   try {
-    assert.throws(() => createAccountStore({ database: {} }), /DATABASE_URL/);
+    assert.throws(() => createAccountStore({ database: {} }), /DATABASE_URL|PGHOST/);
   } finally {
     restore();
   }
