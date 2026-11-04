@@ -11,6 +11,8 @@ const tableOrder = [
   "products",
   "product_images",
   "orders",
+  "payment_events",
+  "payment_refunds",
   "order_items",
   "inventory_movements",
   "seller_fulfillments",

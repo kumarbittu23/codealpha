@@ -86,5 +86,12 @@ module.exports = {
   findCustomerOrder: ordersRepository.findCustomerOrder,
   createReturnRequest: ordersRepository.createReturnRequest,
   findPaymentOrder: ordersRepository.findPaymentOrder,
-  markPaymentCaptured: ordersRepository.markPaymentCaptured
+  markPaymentCaptured: ordersRepository.markPaymentCaptured,
+  recordPaymentEvent: ordersRepository.recordPaymentEvent,
+  recordProviderRefund: ordersRepository.recordProviderRefund,
+  findOrderByProviderPaymentId: ordersRepository.findOrderByProviderPaymentId,
+  markProviderRefund: ordersRepository.markProviderRefund,
+  findOrderByProviderOrderId: ordersRepository.findOrderByProviderOrderId,
+  markProviderPaymentCaptured: ordersRepository.markProviderPaymentCaptured,
+  markProviderPaymentFailed: ordersRepository.markProviderPaymentFailed
 };

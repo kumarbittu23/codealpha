@@ -41,6 +41,85 @@ function findPaymentOrder(orderId, userId) {
   `).get(orderId, userId);
 }
 
+function recordPaymentEvent({ eventId, orderId, paymentId, eventType, payload }) {
+  if (!eventId) return false;
+  const result = database.prepare(`
+    INSERT INTO payment_events (provider, provider_event_id, provider_order_id, provider_payment_id, event_type, payload)
+    VALUES ('razorpay', ?, ?, ?, ?, ?)
+    ON CONFLICT(provider_event_id) DO NOTHING
+  `).run(eventId, orderId || null, paymentId || null, eventType, JSON.stringify(payload));
+  return result.changes === 1;
+}
+
+function findOrderByProviderOrderId(providerOrderId) {
+  return database.prepare(`
+    SELECT id, status, payment_status AS paymentStatus, user_id AS userId, total_paise AS totalPaise
+    FROM orders WHERE razorpay_order_id = ?
+  `).get(providerOrderId);
+}
+
+function markProviderPaymentCaptured(orderId, paymentId, providerOrderId) {
+  database.transaction(() => {
+    database.prepare(`
+      UPDATE orders SET status = 'placed', payment_status = 'paid', razorpay_payment_id = ?
+      WHERE id = ? AND razorpay_order_id = ? AND status = 'pending_payment' AND payment_status = 'pending'
+    `).run(paymentId, orderId, providerOrderId);
+    database.prepare(`
+      UPDATE seller_fulfillments SET status = 'placed', updated_at = CURRENT_TIMESTAMP
+      WHERE order_id = ? AND status = 'pending_payment'
+    `).run(orderId);
+  });
+}
+
+function markProviderPaymentFailed(orderId, providerOrderId) {
+  database.transaction(() => {
+    const changed = database.prepare(`
+      UPDATE orders SET status = 'cancelled', payment_status = 'failed'
+      WHERE id = ? AND razorpay_order_id = ? AND status = 'pending_payment' AND payment_status = 'pending'
+    `).run(orderId, providerOrderId);
+    if (changed.changes !== 1) return;
+    const items = database.prepare("SELECT product_id AS productId, quantity FROM order_items WHERE order_id = ?").all(orderId);
+    const restock = database.prepare("UPDATE products SET stock = stock + ? WHERE id = ?");
+    const movement = database.prepare("INSERT INTO inventory_movements (product_id, order_id, movement_type, quantity) VALUES (?, ?, 'release', ?)");
+    for (const item of items) {
+      restock.run(item.quantity, item.productId);
+      movement.run(item.productId, orderId, item.quantity);
+    }
+    database.prepare(`
+      UPDATE seller_fulfillments SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+      WHERE order_id = ? AND status = 'pending_payment'
+    `).run(orderId);
+  });
+}
+
+function findOrderByProviderPaymentId(providerPaymentId) {
+  return database.prepare(`
+    SELECT id, total_paise AS totalPaise FROM orders WHERE razorpay_payment_id = ?
+  `).get(providerPaymentId);
+}
+
+function markProviderRefund(orderId, paymentId) {
+  const order = database.prepare("SELECT total_paise AS totalPaise FROM orders WHERE id = ?").get(orderId);
+  if (!order) return;
+  const refunded = database.prepare(`
+    SELECT COALESCE(SUM(amount_paise), 0) AS amountPaise
+    FROM payment_refunds WHERE order_id = ? AND provider_payment_id = ? AND status = 'processed'
+  `).get(orderId, paymentId);
+  database.prepare(`
+    UPDATE orders SET payment_status = ? WHERE id = ? AND razorpay_payment_id = ?
+  `).run(refunded.amountPaise >= order.totalPaise ? "refunded" : "partially_refunded", orderId, paymentId);
+}
+
+function recordProviderRefund({ refundId, paymentId, orderId, amountPaise, currency, status }) {
+  if (!refundId || !paymentId || !Number.isSafeInteger(amountPaise) || amountPaise < 0) return false;
+  const result = database.prepare(`
+    INSERT INTO payment_refunds (provider, provider_refund_id, provider_payment_id, order_id, amount_paise, currency, status)
+    VALUES ('razorpay', ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(provider_refund_id) DO NOTHING
+  `).run(refundId, paymentId, orderId || null, amountPaise, currency || "INR", status || "processed");
+  return result.changes === 1;
+}
+
 function markPaymentCaptured(orderId, userId, razorpayPaymentId) {
   database.transaction(() => {
     database.prepare(`
@@ -195,6 +274,13 @@ function saveOrder({
 }
 
 module.exports = {
+  recordProviderRefund,
+  findOrderByProviderPaymentId,
+  markProviderRefund,
+  recordPaymentEvent,
+  findOrderByProviderOrderId,
+  markProviderPaymentCaptured,
+  markProviderPaymentFailed,
   cancelCustomerOrder,
   findCustomerOrder,
   createReturnRequest,

@@ -91,6 +91,29 @@ CREATE TABLE IF NOT EXISTS order_items (
   payout_status TEXT NOT NULL DEFAULT 'pending'
 );
 
+CREATE TABLE IF NOT EXISTS payment_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider TEXT NOT NULL,
+  provider_event_id TEXT NOT NULL UNIQUE,
+  provider_order_id TEXT,
+  provider_payment_id TEXT,
+  event_type TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS payment_refunds (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider TEXT NOT NULL DEFAULT 'razorpay',
+  provider_refund_id TEXT NOT NULL UNIQUE,
+  provider_payment_id TEXT NOT NULL,
+  order_id INTEGER REFERENCES orders(id) ON DELETE CASCADE,
+  amount_paise INTEGER NOT NULL CHECK (amount_paise >= 0),
+  currency TEXT NOT NULL DEFAULT 'INR',
+  status TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS inventory_movements (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE RESTRICT,

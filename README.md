@@ -96,7 +96,9 @@ If port 3000 is already occupied, stop the other server or start this one on ano
   ```cmd
   set "RAZORPAY_KEY_ID=rzp_test_your_key_id"
   set "RAZORPAY_KEY_SECRET=your_test_key_secret"
-  npm start
+  set "RAZORPAY_WEBHOOK_SECRET=your_webhook_secret"
+
+Configure the Razorpay webhook URL as `https://your-domain/api/payments/razorpay/webhook` and Subscribe to `payment.captured`, `payment.failed`, and `refund.processed` events.  npm start
   ```
 
   Use your actual Test Mode values, not the example strings. The Key ID is sent to the browser as Razorpay requires; the Key Secret stays on the server. Never paste payment keys into chat, HTML, or JavaScript. Enable automatic payment capture in your Razorpay dashboard for orders to be confirmed after checkout. Test keys allow simulated payments only. Switch to live keys only after completing Razorpay merchant onboarding and testing the whole checkout.

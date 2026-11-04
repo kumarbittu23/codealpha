@@ -38,6 +38,9 @@ app.use(helmet({
     }
   }
 }));
+const createOrdersController = require("./controllers/orders.controller");
+const webhookOrdersController = createOrdersController();
+app.post("/api/payments/razorpay/webhook", express.raw({ type: "application/json", limit: "1mb" }), webhookOrdersController.webhook);
 app.use((request, response, next) => {
   const limit = request.method === "POST" && /^\/api\/products\/\d+\/reviews$/.test(request.path) ? "1100kb" : "20kb";
   express.json({ limit })(request, response, next);

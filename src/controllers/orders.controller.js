@@ -1,8 +1,62 @@
 const crypto = require("node:crypto");
 const ordersService = require("../services/orders.service");
+const { verifyProviderSignature } = require("../services/payment.service");
 
 function createOrdersController() {
   return {
+    webhook(request, response, next) {
+      const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+      if (!secret) return response.status(503).json({ error: "Payment webhooks are not configured." });
+      if (!verifyProviderSignature(request.body, request.get("X-Razorpay-Signature"), secret)) {
+        return response.status(400).json({ error: "Invalid webhook signature." });
+      }
+      try {
+        const payload = JSON.parse(request.body.toString("utf8"));
+        const eventId = typeof payload.id === "string" ? payload.id : "";
+        const paymentEntity = payload.payload?.payment?.entity;
+        const refundEntity = payload.payload?.refund?.entity;
+        const entity = refundEntity || paymentEntity;
+        const providerOrderId = typeof paymentEntity?.order_id === "string" ? paymentEntity.order_id : "";
+        const paymentId = typeof refundEntity?.payment_id === "string"
+          ? refundEntity.payment_id
+          : typeof paymentEntity?.id === "string" ? paymentEntity.id : "";
+        const isRefundEvent = Boolean(refundEntity);
+        if (!eventId || !entity || (!isRefundEvent && !providerOrderId)) return response.status(400).json({ error: "Invalid payment webhook payload." });
+        const eventType = typeof payload.event === "string" ? payload.event : "";
+        const refundId = isRefundEvent && typeof refundEntity.id === "string" ? refundEntity.id : "";
+        if (isRefundEvent && !refundId) return response.status(400).json({ error: "Invalid refund webhook payload." });
+        const order = isRefundEvent
+          ? ordersService.findOrderByProviderPaymentId(paymentId)
+          : ordersService.findOrderByProviderOrderId(providerOrderId);
+        if (!order) return response.json({ received: true, unmatched: true });
+        if (entity.currency !== undefined && entity.currency !== "INR") return response.status(400).json({ error: "Payment currency mismatch." });
+        if (isRefundEvent) {
+          if (!Number.isSafeInteger(entity.amount) || entity.amount < 0 || entity.amount > order.totalPaise) {
+            return response.status(400).json({ error: "Refund amount mismatch." });
+          }
+        } else if (entity.amount !== undefined && entity.amount !== order.totalPaise) {
+          return response.status(400).json({ error: "Payment amount mismatch." });
+        }
+        const isNew = ordersService.recordPaymentEvent({ eventId, orderId: providerOrderId, paymentId, eventType, payload });
+        if (!isNew) return response.json({ received: true, duplicate: true });
+        if (isRefundEvent) {
+          if (eventType === "refund.processed") {
+            ordersService.recordProviderRefund({ refundId, paymentId, orderId: order.id, amountPaise: entity.amount, currency: entity.currency, status: refundEntity.status || "processed" });
+            ordersService.markProviderRefund(order.id, paymentId);
+          }
+        } else {
+          if (eventType === "payment.captured" && entity.status === "captured") {
+            ordersService.markProviderPaymentCaptured(order.id, paymentId, providerOrderId);
+          } else if (eventType === "payment.failed" || (eventType === "payment.captured" && entity.status === "failed")) {
+            ordersService.markProviderPaymentFailed(order.id, providerOrderId);
+          }
+        }
+        response.json({ received: true });
+      } catch (error) {
+        if (error instanceof SyntaxError) return response.status(400).json({ error: "Invalid webhook JSON." });
+        next(error);
+      }
+    },
     cancel(request, response, next) {
       const id = Number(request.params.id);
       if (!Number.isSafeInteger(id) || id < 1) return response.status(400).json({ error: "Invalid order ID." });
