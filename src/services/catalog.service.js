@@ -1,8 +1,8 @@
-const catalogRepository = require("../repositories/catalog.repository");
+const { getCatalogRepository } = require("../repositories/catalog-repository-store");
 const { readCategories, flattenCategories } = require("./marketplace.shared");
 
-function listProducts(query) {
-  const result = catalogRepository.listProducts(query);
+async function listProducts(query) {
+  const result = await getCatalogRepository().listProducts(query);
   if (result.categoryNotFound) return result;
   const categoryLookup = new Map(flattenCategories(readCategories()).map((category) => [category.id, category]));
   function addCategoryPath(product) {
@@ -20,8 +20,8 @@ function listProducts(query) {
   };
 }
 
-function getProduct(productId) {
-  const product = catalogRepository.getProductById(productId);
+async function getProduct(productId) {
+  const product = await getCatalogRepository().getProductById(productId);
   if (!product) return null;
   const category = flattenCategories(readCategories()).find((item) => item.id === product.categoryId);
   return {

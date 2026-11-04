@@ -17,15 +17,19 @@ function createCatalogController() {
         razorpayKeyId: process.env.RAZORPAY_KEY_ID || null
       });
     },
-    listProducts(request, response) {
-      const result = catalogService.listProducts(request.query);
-      if (result.categoryNotFound) return response.status(404).json({ error: "Category not found." });
-      response.json(result);
+    async listProducts(request, response, next) {
+      try {
+        const result = await catalogService.listProducts(request.query);
+        if (result.categoryNotFound) return response.status(404).json({ error: "Category not found." });
+        response.json(result);
+      } catch (error) { next(error); }
     },
-    getProduct(request, response) {
-      const product = catalogService.getProduct(Number(request.params.id));
+    async getProduct(request, response, next) {
+      try {
+      const product = await catalogService.getProduct(Number(request.params.id));
       if (!product) return response.status(404).json({ error: "Product not found." });
       response.json(product);
+      } catch (error) { next(error); }
     }
   };
 }
