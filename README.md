@@ -84,6 +84,18 @@ $credential = $null
 
 Use a sanitized database copy and a temporary database user with access only to the disposable target. Do not paste a real connection URL into chat or commit it to files. The explicit flag confirms the target is disposable; the script independently refuses any PostgreSQL database that already contains a table. A real RDS migration rehearsal still requires an approved budget and a provisioned target.
 
+### Apply the initial PostgreSQL schema
+
+Use only a disposable PostgreSQL database for schema rehearsal. The command checks that the target is empty, executes the initial schema transactionally, and records a SHA-256 migration checksum:
+
+```powershell
+$env:DATABASE_URL = "postgresql://HOST:5432/DISPOSABLE_DATABASE?sslmode=require"
+npm run postgres:schema -- --confirm-empty-target
+Remove-Item Env:DATABASE_URL
+```
+
+On later runs the existing schema is accepted only when its recorded checksum matches the repository schema. Create a new numbered migration file for schema changes instead of modifying an already-applied migration.
+
 ### Create a database backup
 
 Stop writes if practical, then run `npm run backup` to create and verify a consistent SQLite snapshot under the ignored `backups/` folder. Or specify a destination that does not already exist:
