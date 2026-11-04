@@ -45,7 +45,7 @@ The workflow also builds and tests the AWS CDK foundation and synthesizes its de
 
 ### Manual ECS deployment pipeline
 
-The `Deploy application` workflow is an approval-gated `workflow_dispatch` deployment. It authenticates through AWS IAM OIDC, builds the application Docker image, pushes it to the immutable `corner-store/application` ECR repository, registers an ECS task revision, and waits for the service to stabilize. AWS resources are not created by CI.
+The CDK foundation creates an ECS Fargate application service behind an internet-facing Application Load Balancer, with the session secret managed by Secrets Manager. The `Deploy application` workflow is an approval-gated `workflow_dispatch` deployment. It authenticates through AWS IAM OIDC, builds the application Docker image, pushes it to the immutable `corner-store/application` ECR repository, registers an ECS task revision, and waits for the service to stabilize. AWS resources are not created by CI.
 
 Before first deployment, create the CDK foundation, configure an AWS IAM role trusted by GitHub Actions, and set the GitHub environment secret `AWS_DEPLOY_ROLE_ARN`. Configure environment variables `AWS_REGION`, `ECS_CLUSTER`, `ECS_SERVICE`, and `ECS_TASK_FAMILY`. Store runtime application secrets in AWS Secrets Manager or ECS task configuration rather than repository variables. For each environment, require a protected GitHub environment approval and verify the AWS account and IAM permissions before manually running the workflow.
 

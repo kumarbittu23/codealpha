@@ -3,8 +3,10 @@ import { Duration, RemovalPolicy, Stack, StackProps } from "aws-cdk-lib";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as ecr from "aws-cdk-lib/aws-ecr";
 import * as ecs from "aws-cdk-lib/aws-ecs";
+import * as ecsPatterns from "aws-cdk-lib/aws-ecs-patterns";
 import * as rds from "aws-cdk-lib/aws-rds";
 import * as s3 from "aws-cdk-lib/aws-s3";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import { Construct } from "constructs";
 
@@ -148,6 +150,50 @@ export class CornerStoreFoundationStack extends Stack {
       })
     );
 
+    const applicationRepository = repositories[0];
+    const sessionSecret = new secretsmanager.Secret(this, "ApplicationSessionSecret", {
+      secretName: `corner-store/${props.environmentName}/session`,
+      generateSecretString: {
+        secretStringTemplate: "{}",
+        generateStringKey: "SESSION_SECRET",
+        excludePunctuation: true,
+        passwordLength: 64
+      }
+    });
+    const applicationService = new ecsPatterns.ApplicationLoadBalancedFargateService(this, "ApplicationFargateService", {
+      cluster,
+      desiredCount: isProduction ? 2 : 1,
+      cpu: 512,
+      memoryLimitMiB: 1024,
+      publicLoadBalancer: true,
+      circuitBreaker: { rollback: true },
+      minHealthyPercent: 100,
+      maxHealthyPercent: 200,
+      taskSubnets: {
+        subnetType: props.natGatewayCount > 0 ? ec2.SubnetType.PRIVATE_WITH_EGRESS : ec2.SubnetType.PRIVATE_ISOLATED
+      },
+      securityGroups: [backendSecurityGroup],
+      taskImageOptions: {
+        image: ecs.ContainerImage.fromEcrRepository(applicationRepository, "latest"),
+        containerPort: 3000,
+        environment: {
+          PORT: "3000",
+          TRUST_PROXY_HOPS: "1"
+        },
+        secrets: {
+          SESSION_SECRET: ecs.Secret.fromSecretsManager(sessionSecret, "SESSION_SECRET")
+        }
+      },
+      healthCheckGracePeriod: Duration.seconds(60)
+    });
+    applicationService.targetGroup.configureHealthCheck({
+      path: "/health/live",
+      interval: Duration.seconds(30),
+      timeout: Duration.seconds(5),
+      healthyThresholdCount: 2,
+      unhealthyThresholdCount: 5
+    });
+
     new cdk.CfnOutput(this, "VpcId", { value: vpc.vpcId });
     new cdk.CfnOutput(this, "EcsClusterName", { value: cluster.clusterName });
     new cdk.CfnOutput(this, "DatabaseSecretArn", {
@@ -170,6 +216,15 @@ export class CornerStoreFoundationStack extends Stack {
     });
     new cdk.CfnOutput(this, "BackendSecurityGroupId", {
       value: backendSecurityGroup.securityGroupId
+    });
+    new cdk.CfnOutput(this, "ApplicationUrl", {
+      value: `http://${applicationService.loadBalancer.loadBalancerDnsName}`
+    });
+    new cdk.CfnOutput(this, "ApplicationServiceName", {
+      value: applicationService.service.serviceName
+    });
+    new cdk.CfnOutput(this, "ApplicationTaskFamily", {
+      value: applicationService.taskDefinition.family
     });
   }
 }

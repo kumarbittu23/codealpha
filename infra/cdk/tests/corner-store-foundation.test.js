@@ -33,6 +33,8 @@ test("foundation provisions private encrypted database, private media, and resil
   template.hasResourceProperties("AWS::SQS::Queue", {
     SqsManagedSseEnabled: true
   });
+  template.resourceCountIs("AWS::ECS::Service", 1);
+  template.resourceCountIs("AWS::ElasticLoadBalancingV2::LoadBalancer", 1);
   template.hasResourceProperties("AWS::ECS::Cluster", {
     ClusterSettings: Match.arrayWith([
     Match.objectLike({ Name: "containerInsights", Value: "enabled" })
