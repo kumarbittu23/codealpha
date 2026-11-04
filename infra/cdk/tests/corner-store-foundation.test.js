@@ -9,7 +9,10 @@ test("foundation provisions private encrypted database, private media, and resil
   const stack = new CornerStoreFoundationStack(app, "TestFoundation", {
     env: { region: "ap-south-1", account: "111111111111" },
     environmentName: "production",
-    natGatewayCount: 2
+    natGatewayCount: 2,
+    accountDatabaseBackend: "sqlite",
+    postgresAccountCutover: "",
+    postgresMarketplaceCutover: ""
   });
   const template = Template.fromStack(stack);
 

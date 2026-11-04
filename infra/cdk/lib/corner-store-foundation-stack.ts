@@ -13,6 +13,9 @@ import { Construct } from "constructs";
 interface CornerStoreFoundationStackProps extends StackProps {
   environmentName: "development" | "staging" | "production";
   natGatewayCount: number;
+  accountDatabaseBackend: "sqlite" | "postgresql";
+  postgresAccountCutover: "" | "complete";
+  postgresMarketplaceCutover: "" | "complete";
 }
 
 const serviceNames = [
@@ -179,6 +182,9 @@ export class CornerStoreFoundationStack extends Stack {
         environment: {
           PORT: "3000",
           TRUST_PROXY_HOPS: "1",
+          ACCOUNT_DATABASE_BACKEND: props.accountDatabaseBackend,
+          POSTGRES_ACCOUNT_CUTOVER: props.postgresAccountCutover,
+          POSTGRES_MARKETPLACE_CUTOVER: props.postgresMarketplaceCutover,
           PGSSLMODE: "require"
         },
         secrets: {

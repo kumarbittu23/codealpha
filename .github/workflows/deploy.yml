@@ -50,10 +50,22 @@ jobs:
           ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
           ECS_SERVICE: ${{ vars.ECS_SERVICE }}
           ECS_TASK_FAMILY: ${{ vars.ECS_TASK_FAMILY }}
+          ACCOUNT_DATABASE_BACKEND: ${{ vars.ACCOUNT_DATABASE_BACKEND }}
+          POSTGRES_ACCOUNT_CUTOVER: ${{ vars.POSTGRES_ACCOUNT_CUTOVER }}
+          POSTGRES_MARKETPLACE_CUTOVER: ${{ vars.POSTGRES_MARKETPLACE_CUTOVER }}
         run: |
           if [ -z "$ECS_CLUSTER" ] || [ -z "$ECS_SERVICE" ] || [ -z "$ECS_TASK_FAMILY" ]; then
             echo "Image was pushed successfully, but ECS deployment variables are not configured." >&2
             echo "Set ECS_CLUSTER, ECS_SERVICE, and ECS_TASK_FAMILY as GitHub environment variables." >&2
+            exit 1
+          fi
+          backend="${ACCOUNT_DATABASE_BACKEND:-sqlite}"
+          if [ "$backend" != "sqlite" ] && [ "$backend" != "postgresql" ]; then
+            echo "ACCOUNT_DATABASE_BACKEND must be sqlite or postgresql." >&2
+            exit 1
+          fi
+          if [ "$backend" = "postgresql" ] && { [ "$POSTGRES_ACCOUNT_CUTOVER" != "complete" ] || [ "$POSTGRES_MARKETPLACE_CUTOVER" != "complete" ]; }; then
+            echo "PostgreSQL deployment requires both cutover guards to be complete." >&2
             exit 1
           fi
 
@@ -63,9 +75,13 @@ jobs:
           ECS_SERVICE: ${{ vars.ECS_SERVICE }}
           ECS_TASK_FAMILY: ${{ vars.ECS_TASK_FAMILY }}
           IMAGE: ${{ steps.build.outputs.image }}
+          ACCOUNT_DATABASE_BACKEND: ${{ vars.ACCOUNT_DATABASE_BACKEND }}
+          POSTGRES_ACCOUNT_CUTOVER: ${{ vars.POSTGRES_ACCOUNT_CUTOVER }}
+          POSTGRES_MARKETPLACE_CUTOVER: ${{ vars.POSTGRES_MARKETPLACE_CUTOVER }}
         run: |
+          backend="${ACCOUNT_DATABASE_BACKEND:-sqlite}"
           task_definition=$(aws ecs describe-task-definition --task-definition "$ECS_TASK_FAMILY" --query taskDefinition --output json)
-          new_task_definition=$(python3 -c 'import json,sys; d=json.load(sys.stdin); d={k:d.get(k) for k in ("family","taskRoleArn","executionRoleArn","networkMode","containerDefinitions","volumes","placementConstraints","requiresCompatibilities","cpu","memory","runtimePlatform","ephemeralStorage") if d.get(k) is not None}; d["containerDefinitions"][0]["image"]=sys.argv[1]; print(json.dumps(d))' "$IMAGE" <<< "$task_definition")
+          new_task_definition=$(python3 -c 'import json,sys; d=json.load(sys.stdin); d={k:d.get(k) for k in ("family","taskRoleArn","executionRoleArn","networkMode","containerDefinitions","volumes","placementConstraints","requiresCompatibilities","cpu","memory","runtimePlatform","ephemeralStorage") if d.get(k) is not None}; c=d["containerDefinitions"][0]; c["image"]=sys.argv[1]; values={"ACCOUNT_DATABASE_BACKEND":sys.argv[2],"POSTGRES_ACCOUNT_CUTOVER":sys.argv[3],"POSTGRES_MARKETPLACE_CUTOVER":sys.argv[4]}; c["environment"]=[e for e in c.get("environment",[]) if e["name"] not in values]; c.setdefault("environment",[]).extend({"name":k,"value":v} for k,v in values.items()); print(json.dumps(d))' "$IMAGE" "$backend" "$POSTGRES_ACCOUNT_CUTOVER" "$POSTGRES_MARKETPLACE_CUTOVER" <<< "$task_definition")
           aws ecs register-task-definition --cli-input-json "$new_task_definition" >/tmp/task-definition.json
           revision=$(python3 -c 'import json; print(json.load(open("/tmp/task-definition.json"))["taskDefinition"]["revision"])')
           aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" --task-definition "$ECS_TASK_FAMILY:$revision"
