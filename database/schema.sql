@@ -91,6 +91,15 @@ CREATE TABLE IF NOT EXISTS order_items (
   payout_status TEXT NOT NULL DEFAULT 'pending'
 );
 
+CREATE TABLE IF NOT EXISTS inventory_movements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE RESTRICT,
+  order_id INTEGER REFERENCES orders(id) ON DELETE SET NULL,
+  movement_type TEXT NOT NULL CHECK (movement_type IN ('reserve', 'release', 'adjustment')),
+  quantity INTEGER NOT NULL CHECK (quantity > 0),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS seller_fulfillments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,

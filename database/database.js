@@ -6,6 +6,7 @@ const migrateLegacyCurrency = require("./migrations/001-currency-to-paise");
 const database = new DatabaseSync(process.env.DATABASE_PATH || path.join(__dirname, "..", "store.sqlite"));
 database.exec("PRAGMA journal_mode = WAL");
 database.exec("PRAGMA foreign_keys = ON");
+database.exec("PRAGMA busy_timeout = 5000");
 database.transaction = (callback) => {
   database.exec("BEGIN IMMEDIATE");
   try {

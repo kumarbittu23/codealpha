@@ -13,7 +13,14 @@ function cancelCustomerOrder(orderId, userId) {
     }
     const items = database.prepare("SELECT product_id, quantity FROM order_items WHERE order_id = ?").all(orderId);
     const restock = database.prepare("UPDATE products SET stock = stock + ? WHERE id = ?");
-    for (const item of items) restock.run(item.quantity, item.product_id);
+    const recordMovement = database.prepare(`
+      INSERT INTO inventory_movements (product_id, order_id, movement_type, quantity)
+      VALUES (?, ?, 'release', ?)
+    `);
+    for (const item of items) {
+      restock.run(item.quantity, item.product_id);
+      recordMovement.run(item.product_id, orderId, item.quantity);
+    }
     database.prepare("UPDATE orders SET status = 'cancelled', payment_status = 'cancelled' WHERE id = ?").run(orderId);
   });
 }
@@ -156,6 +163,10 @@ function saveOrder({
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const updateStock = database.prepare("UPDATE products SET stock = stock - ? WHERE id = ? AND stock >= ?");
+    const recordMovement = database.prepare(`
+      INSERT INTO inventory_movements (product_id, order_id, movement_type, quantity)
+      VALUES (?, ?, 'reserve', ?)
+    `);
     for (const product of itemTotals) {
       addItem.run(
         orderId, product.id, product.name, product.quantity, product.price_paise,
@@ -163,6 +174,7 @@ function saveOrder({
       );
       const update = updateStock.run(product.quantity, product.id, product.quantity);
       if (update.changes !== 1) throw new Error(`${product.name} does not have enough stock available.`);
+      recordMovement.run(product.id, orderId, product.quantity);
     }
     const addFulfillment = database.prepare(`
       INSERT INTO seller_fulfillments (order_id, seller_id, status)

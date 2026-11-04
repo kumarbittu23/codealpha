@@ -188,9 +188,6 @@ function updateOrder(id, body) {
       return { error: `Order cannot move from ${current.status} to ${nextStatus}.`, status: 409 };
     }
     if (nextStatus === "cancelled") {
-      for (const item of repository.getOrderItemsForRestock(id)) {
-        repository.restockProduct(item.productId, item.quantity);
-      }
       repository.cancelOrder(id);
     } else if (nextStatus === "delivered") {
       repository.markOrderDelivered(id, trackingCarrier, trackingCode);

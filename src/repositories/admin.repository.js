@@ -265,7 +265,17 @@ function restockProduct(productId, quantity) {
 }
 
 function cancelOrder(id) {
-  database.prepare("UPDATE orders SET status = 'cancelled', payment_status = 'cancelled' WHERE id = ?").run(id);
+  const items = getOrderItemsForRestock(id);
+  const restock = database.prepare("UPDATE products SET stock = stock + ? WHERE id = ?");
+  const recordMovement = database.prepare(`
+    INSERT INTO inventory_movements (product_id, order_id, movement_type, quantity)
+    VALUES (?, ?, 'release', ?)
+  `);
+  for (const item of items) {
+    restock.run(item.quantity, item.productId);
+    recordMovement.run(item.productId, id, item.quantity);
+  }
+  database.prepare("UPDATE orders SET status = 'cancelled', payment_status = 'cancelled' WHERE id = ? AND status != 'cancelled'").run(id);
   database.prepare(`
     UPDATE seller_fulfillments SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE order_id = ?
   `).run(id);
