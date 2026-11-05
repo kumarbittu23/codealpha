@@ -1,31 +1,36 @@
-const sellerRepository = require("../repositories/seller.repository");
+const { getSellerRepository } = require("../repositories/seller-repository-store");
 const sellerService = require("../services/seller.service");
 const { readAdminProduct } = require("../services/marketplace.shared");
 
 function createSellerController() {
   return {
-    apply(request, response) {
+    async apply(request, response, next) {
+      try {
       const validation = sellerService.validateApplication(request.body);
       if (validation.error) return response.status(400).json({ error: validation.error });
-      const result = sellerRepository.submitApplication(request.session.user.id, validation.value);
+      const result = await getSellerRepository().submitApplication(request.session.user.id, validation.value);
       if (result.conflictStatus) {
         return response.status(409).json({
           error: `A seller application already exists with status: ${result.conflictStatus}.`
         });
       }
       response.status(result.statusCode).json(result.seller);
+      } catch (error) { next(error); }
     },
-    getOverview(request, response) {
-      const seller = sellerRepository.findSellerByUserId(request.session.user.id);
+    async getOverview(request, response, next) {
+      try {
+      const repository = getSellerRepository();
+      const seller = await repository.findSellerByUserId(request.session.user.id);
       if (!seller) return response.status(404).json({ error: "Submit a seller application to get started." });
       if (seller.status !== "active") return response.status(403).json({ error: `Your seller account is ${seller.status}.` });
-      response.json(sellerService.getSellerOverview(seller));
+      response.json(await sellerService.getSellerOverview(seller));
+      } catch (error) { next(error); }
     },
-    updateFulfillment(request, response, next) {
+    async updateFulfillment(request, response, next) {
       const validation = sellerService.validateFulfillment(request.body, request.params.id);
       if (validation.error) return response.status(400).json({ error: validation.error });
       try {
-        const result = sellerRepository.updateFulfillment({
+        const result = await getSellerRepository().updateFulfillment({
           ...validation.value,
           sellerId: request.seller.id
         });
@@ -45,29 +50,35 @@ function createSellerController() {
         next(error);
       }
     },
-    createProduct(request, response) {
+    async createProduct(request, response, next) {
+      try {
       const input = readAdminProduct(request.body);
       if (input.error) return response.status(400).json({ error: input.error });
-      response.status(201).json(sellerRepository.saveSellerProduct(request.seller.id, input.product));
+      response.status(201).json(await getSellerRepository().saveSellerProduct(request.seller.id, input.product));
+      } catch (error) { next(error); }
     },
-    updateProduct(request, response) {
+    async updateProduct(request, response, next) {
+      try {
       const productId = Number(request.params.id);
       if (!Number.isSafeInteger(productId) || productId < 1) return response.status(400).json({ error: "Invalid product ID." });
       const input = readAdminProduct(request.body, productId);
       if (input.error) return response.status(400).json({ error: input.error });
-      const product = sellerRepository.saveSellerProduct(request.seller.id, input.product, productId);
+      const product = await getSellerRepository().saveSellerProduct(request.seller.id, input.product, productId);
       if (!product) return response.status(404).json({ error: "Product not found in your seller catalog." });
       response.json(product);
+      } catch (error) { next(error); }
     },
-    deleteProduct(request, response) {
+    async deleteProduct(request, response, next) {
+      try {
       const productId = Number(request.params.id);
       if (!Number.isSafeInteger(productId) || productId < 1) return response.status(400).json({ error: "Invalid product ID." });
-      const result = sellerRepository.deleteSellerProduct(request.seller.id, productId);
+      const result = await getSellerRepository().deleteSellerProduct(request.seller.id, productId);
       if (result === "not_found") return response.status(404).json({ error: "Product not found in your seller catalog." });
       if (result === "has_orders") {
         return response.status(409).json({ error: "This product is part of an order and cannot be deleted. Set its stock to zero instead." });
       }
       response.status(204).end();
+      } catch (error) { next(error); }
     }
   };
 }

@@ -1,4 +1,4 @@
-const sellerRepository = require("../repositories/seller.repository");
+const { getSellerRepository } = require("../repositories/seller-repository-store");
 const { readCategories, flattenCategories } = require("./marketplace.shared");
 
 function validateApplication(body) {
@@ -31,8 +31,8 @@ function validateFulfillment(body, rawOrderId) {
   return { value: { orderId, nextStatus, trackingCarrier, trackingCode } };
 }
 
-function getSellerOverview(seller) {
-  const overview = sellerRepository.getOverview(seller.id);
+async function getSellerOverview(seller) {
+  const overview = await getSellerRepository().getOverview(seller.id);
   const categories = flattenCategories(readCategories());
   const categoryLabels = new Map(categories.map((category) => [category.id, category.pathLabel]));
   overview.products = overview.products.map((product) => ({

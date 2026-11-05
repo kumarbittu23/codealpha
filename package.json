@@ -17,7 +17,7 @@
     "postgres:cutover-check": "node src/check-postgres-cutover.js",
     "migrate:postgres": "node database/postgresql/migrate-sqlite.js",
     "create-admin": "node src/create-admin.js",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test --test-concurrency=1 tests/*.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

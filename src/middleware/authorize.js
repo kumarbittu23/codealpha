@@ -1,4 +1,5 @@
 const database = require("../config/database");
+const { getSellerRepository } = require("../repositories/seller-repository-store");
 
 function requireAdmin(request, response, next) {
   if (request.session.user?.role !== "admin") {
@@ -13,15 +14,17 @@ function getSeller(userId) {
   return database.prepare("SELECT id, store_name AS storeName, phone, gstin, status FROM sellers WHERE user_id = ?").get(userId);
 }
 
-function requireActiveSeller(request, response, next) {
-  const seller = getSeller(request.session.user.id);
-  if (!seller || seller.status !== "active") {
-    return response.status(403).json({
-      error: seller?.status === "pending" ? "Your seller application is awaiting approval." : "An approved seller account is required."
-    });
-  }
-  request.seller = seller;
-  next();
+async function requireActiveSeller(request, response, next) {
+  try {
+    const seller = (process.env.ACCOUNT_DATABASE_BACKEND || "sqlite") === "postgresql"
+      ? await getSellerRepository().findSellerByUserId(request.session.user.id)
+      : getSeller(request.session.user.id);
+    if (!seller || seller.status !== "active") {
+      return response.status(403).json({ error: seller?.status === "pending" ? "Your seller application is awaiting approval." : "An approved seller account is required." });
+    }
+    request.seller = seller;
+    next();
+  } catch (error) { next(error); }
 }
 
 module.exports = { requireAdmin, getSeller, requireActiveSeller };
