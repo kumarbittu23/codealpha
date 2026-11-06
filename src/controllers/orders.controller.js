@@ -4,7 +4,7 @@ const { verifyProviderSignature } = require("../services/payment.service");
 
 function createOrdersController() {
   return {
-    webhook(request, response, next) {
+    async webhook(request, response, next) {
       const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
       if (!secret) return response.status(503).json({ error: "Payment webhooks are not configured." });
       if (!verifyProviderSignature(request.body, request.get("X-Razorpay-Signature"), secret)) {
@@ -26,8 +26,8 @@ function createOrdersController() {
         const refundId = isRefundEvent && typeof refundEntity.id === "string" ? refundEntity.id : "";
         if (isRefundEvent && !refundId) return response.status(400).json({ error: "Invalid refund webhook payload." });
         const order = isRefundEvent
-          ? ordersService.findOrderByProviderPaymentId(paymentId)
-          : ordersService.findOrderByProviderOrderId(providerOrderId);
+          ? await ordersService.findOrderByProviderPaymentId(paymentId)
+          : await ordersService.findOrderByProviderOrderId(providerOrderId);
         if (!order) return response.json({ received: true, unmatched: true });
         if (entity.currency !== undefined && entity.currency !== "INR") return response.status(400).json({ error: "Payment currency mismatch." });
         if (isRefundEvent) {
@@ -37,18 +37,18 @@ function createOrdersController() {
         } else if (entity.amount !== undefined && entity.amount !== order.totalPaise) {
           return response.status(400).json({ error: "Payment amount mismatch." });
         }
-        const isNew = ordersService.recordPaymentEvent({ eventId, orderId: providerOrderId, paymentId, eventType, payload });
+        const isNew = await ordersService.recordPaymentEvent({ eventId, orderId: providerOrderId, paymentId, eventType, payload });
         if (!isNew) return response.json({ received: true, duplicate: true });
         if (isRefundEvent) {
           if (eventType === "refund.processed") {
-            ordersService.recordProviderRefund({ refundId, paymentId, orderId: order.id, amountPaise: entity.amount, currency: entity.currency, status: refundEntity.status || "processed" });
-            ordersService.markProviderRefund(order.id, paymentId);
+            await ordersService.recordProviderRefund({ refundId, paymentId, orderId: order.id, amountPaise: entity.amount, currency: entity.currency, status: refundEntity.status || "processed" });
+            await ordersService.markProviderRefund(order.id, paymentId);
           }
         } else {
           if (eventType === "payment.captured" && entity.status === "captured") {
-            ordersService.markProviderPaymentCaptured(order.id, paymentId, providerOrderId);
+            await ordersService.markProviderPaymentCaptured(order.id, paymentId, providerOrderId);
           } else if (eventType === "payment.failed" || (eventType === "payment.captured" && entity.status === "failed")) {
-            ordersService.markProviderPaymentFailed(order.id, providerOrderId);
+            await ordersService.markProviderPaymentFailed(order.id, providerOrderId);
           }
         }
         response.json({ received: true });
@@ -57,11 +57,11 @@ function createOrdersController() {
         next(error);
       }
     },
-    cancel(request, response, next) {
+    async cancel(request, response, next) {
       const id = Number(request.params.id);
       if (!Number.isSafeInteger(id) || id < 1) return response.status(400).json({ error: "Invalid order ID." });
       try {
-        ordersService.cancelCustomerOrder(id, request.session.user.id);
+        await ordersService.cancelCustomerOrder(id, request.session.user.id);
         response.json({ id, status: "cancelled" });
       } catch (error) {
         if (error.message === "ORDER_NOT_FOUND") return response.status(404).json({ error: "Order not found." });
@@ -73,15 +73,15 @@ function createOrdersController() {
         next(error);
       }
     },
-    requestReturn(request, response, next) {
+    async requestReturn(request, response, next) {
       const validation = ordersService.validateReturnRequest(request.params.id, request.body.reason);
       if (validation.error) return response.status(400).json({ error: validation.error });
       const { id, reason } = validation.value;
-      const order = ordersService.findCustomerOrder(id, request.session.user.id);
+      const order = await ordersService.findCustomerOrder(id, request.session.user.id);
       if (!order) return response.status(404).json({ error: "Order not found." });
       if (order.status !== "delivered") return response.status(409).json({ error: "A return can be requested after the order is delivered." });
       try {
-        const result = ordersService.createReturnRequest(id, request.session.user.id, reason);
+        const result = await ordersService.createReturnRequest(id, request.session.user.id, reason);
         response.status(201).json({ id: Number(result.lastInsertRowid), orderId: id, status: "pending" });
       } catch (error) {
         if (error.code === "SQLITE_CONSTRAINT_UNIQUE") {
@@ -90,12 +90,12 @@ function createOrdersController() {
         next(error);
       }
     },
-    quoteCoupon(request, response, next) {
+    async quoteCoupon(request, response, next) {
       const validation = ordersService.validateCouponQuote(request.body);
       if (validation.error) return response.status(400).json({ error: validation.error });
       const { code, quantities } = validation.value;
       try {
-        const quote = ordersService.calculateCartQuote(quantities, code);
+        const quote = await ordersService.calculateCartQuote(quantities, code);
         response.json({
           code: quote.coupon.code,
           subtotalPaise: quote.subtotalPaise,
@@ -112,11 +112,11 @@ function createOrdersController() {
         next(error);
       }
     },
-    createCodOrder(request, response, next) {
+    async createCodOrder(request, response, next) {
       const input = ordersService.validateOrderInput(request.body);
       if (input.error) return response.status(400).json({ error: input.error });
       try {
-        const order = ordersService.saveOrder({
+        const order = await ordersService.saveOrder({
           userId: request.session.user.id,
           ...input,
           paymentMethod: "cash_on_delivery",
@@ -135,7 +135,7 @@ function createOrdersController() {
       const input = ordersService.validateOrderInput(request.body);
       if (input.error) return response.status(400).json({ error: input.error });
       try {
-        const estimated = ordersService.calculateCartQuote(input.quantities, input.couponCode).totalPaise;
+        const estimated = (await ordersService.calculateCartQuote(input.quantities, input.couponCode)).totalPaise;
         if (!Number.isSafeInteger(estimated) || estimated < 100) {
           return response.status(400).json({ error: "Razorpay online orders must total at least ₹1." });
         }
@@ -150,7 +150,7 @@ function createOrdersController() {
         if (gatewayOrder.currency !== "INR" || gatewayOrder.amount !== estimated || !gatewayOrder.id) {
           throw new Error("Online payment provider returned an invalid order.");
         }
-        const order = ordersService.saveOrder({
+        const order = await ordersService.saveOrder({
           userId: request.session.user.id,
           ...input,
           paymentMethod: "razorpay",
@@ -180,7 +180,7 @@ function createOrdersController() {
         return response.status(400).json({ error: "Payment could not be verified. If money was deducted, contact the store before trying again." });
       }
       try {
-        const order = ordersService.findPaymentOrder(localOrderId, request.session.user.id);
+        const order = await ordersService.findPaymentOrder(localOrderId, request.session.user.id);
         if (!order || order.paymentMethod !== "razorpay" || order.razorpayOrderId !== razorpayOrderId) {
           return response.status(404).json({ error: "Payment order not found." });
         }
@@ -195,7 +195,7 @@ function createOrdersController() {
             payment.currency !== "INR" || payment.status !== "captured") {
           return response.status(409).json({ error: "Payment is not captured yet. Please wait a moment and try again." });
         }
-        const updated = ordersService.markPaymentCaptured(order.id, request.session.user.id, razorpayPaymentId);
+        const updated = await ordersService.markPaymentCaptured(order.id, request.session.user.id, razorpayPaymentId);
         if (updated.paymentStatus !== "paid") {
           return response.status(409).json({ error: "Payment is being reconciled. Please check your orders in a moment." });
         }

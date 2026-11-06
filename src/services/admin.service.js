@@ -1,4 +1,5 @@
-const repository = require("../repositories/admin.repository");
+const { getAdminRepository } = require("../repositories/admin-repository-store");
+const repository = getAdminRepository();
 const { makeCategorySlug, readAdminProduct } = require("./marketplace.shared");
 
 function readProduct(body, currentProductId = 0) {

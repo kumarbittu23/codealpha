@@ -1,5 +1,6 @@
 const crypto = require("node:crypto");
-const ordersRepository = require("../repositories/orders.repository");
+const { getOrdersRepository } = require("../repositories/orders-repository-store");
+const ordersRepository = getOrdersRepository();
 const { validateOrderInput, handleOrderError } = require("./marketplace.shared");
 
 function validateCouponQuote(body) {

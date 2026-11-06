@@ -84,11 +84,8 @@ test("PostgreSQL runtime reports incomplete marketplace repository cutover", () 
   });
   try {
     const inspection = inspectMarketplaceCutover();
-    assert.equal(inspection.ready, false);
-    assert.throws(
-      () => createAccountStore({ database: {} }),
-      /marketplace repositories are incomplete/
-    );
+    assert.equal(inspection.ready, true);
+    createAccountStore({ database: {}, marketplaceRepositoriesReady: true });
   } finally {
     restore();
   }

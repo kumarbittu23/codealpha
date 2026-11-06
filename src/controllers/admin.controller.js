@@ -1,4 +1,5 @@
-const adminRepository = require("../repositories/admin.repository");
+const { getAdminRepository } = require("../repositories/admin-repository-store");
+const adminRepository = getAdminRepository();
 const adminService = require("../services/admin.service");
 
 function createAdminController() {
