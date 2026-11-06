@@ -4,14 +4,14 @@ const adminService = require("../services/admin.service");
 
 function createAdminController() {
   return {
-    getOverview(request, response) {
-      response.json(adminRepository.getOverview());
+    async getOverview(request, response, next) {
+      try { response.json(await adminRepository.getOverview()); } catch (error) { next(error); }
     },
-    createCategory(request, response) {
-      const input = adminService.createCategory(request.body);
+    async createCategory(request, response, next) {
+      const input = await adminService.createCategory(request.body);
       if (input.error) return response.status(input.status).json({ error: input.error });
       try {
-        response.status(201).json(adminRepository.createCategory(input.category));
+        response.status(201).json(await adminRepository.createCategory(input.category));
       } catch (error) {
         if (error.code === "ERR_SQLITE_ERROR" && /UNIQUE constraint failed: categories\.slug/.test(error.message)) {
           return response.status(409).json({ error: "That category URL slug is already in use." });
@@ -19,13 +19,13 @@ function createAdminController() {
         throw error;
       }
     },
-    updateCategory(request, response) {
+    async updateCategory(request, response, next) {
       const id = Number(request.params.id);
       if (!Number.isSafeInteger(id) || id < 1) return response.status(400).json({ error: "Invalid category ID." });
-      const input = adminService.updateCategory(id, request.body);
+      const input = await adminService.updateCategory(id, request.body);
       if (input.error) return response.status(input.status).json({ error: input.error });
       try {
-        response.json(adminRepository.updateCategory(id, input.category));
+        response.json(await adminRepository.updateCategory(id, input.category));
       } catch (error) {
         if (error.code === "ERR_SQLITE_ERROR" && /UNIQUE constraint failed: categories\.slug/.test(error.message)) {
           return response.status(409).json({ error: "That category URL slug is already in use." });
@@ -33,11 +33,11 @@ function createAdminController() {
         throw error;
       }
     },
-    deleteCategory(request, response) {
+    async deleteCategory(request, response, next) {
       const id = Number(request.params.id);
       if (!Number.isSafeInteger(id) || id < 1) return response.status(400).json({ error: "Invalid category ID." });
-      if (!adminRepository.findCategory(id)) return response.status(404).json({ error: "Category not found." });
-      const result = adminRepository.deleteCategory(id);
+      if (!await adminRepository.findCategory(id)) return response.status(404).json({ error: "Category not found." });
+      const result = await adminRepository.deleteCategory(id);
       if (!result.deleted) {
         return response.status(409).json({
           error: `Category cannot be deleted while it has ${result.childCount ? "subcategories" : ""}${result.childCount && result.productCount ? " or " : ""}${result.productCount ? "products" : ""}. Reassign products or deactivate the category instead.`
@@ -45,70 +45,70 @@ function createAdminController() {
       }
       response.status(204).end();
     },
-    createProduct(request, response) {
-      const input = adminService.readProduct(request.body);
+    async createProduct(request, response, next) {
+      const input = await adminService.readProduct(request.body);
       if (input.error) return response.status(400).json({ error: input.error });
-      const product = adminRepository.createProduct(input.product);
+      const product = await adminRepository.createProduct(input.product);
       if (!product) return response.status(503).json({ error: "Platform seller is not configured." });
       response.status(201).json(product);
     },
-    updateProduct(request, response) {
+    async updateProduct(request, response, next) {
       const id = Number(request.params.id);
       if (!Number.isSafeInteger(id) || id < 1) return response.status(400).json({ error: "Invalid product ID." });
-      const input = adminService.readProduct(request.body, id);
+      const input = await adminService.readProduct(request.body, id);
       if (input.error) return response.status(400).json({ error: input.error });
-      const updated = adminRepository.updateProduct(id, input.product);
+      const updated = await adminRepository.updateProduct(id, input.product);
       if (!updated) return response.status(404).json({ error: "Product not found." });
       response.json(updated);
     },
-    deleteProduct(request, response) {
+    async deleteProduct(request, response, next) {
       const id = Number(request.params.id);
       if (!Number.isSafeInteger(id) || id < 1) return response.status(400).json({ error: "Invalid product ID." });
-      const result = adminRepository.deleteProduct(id);
+      const result = await adminRepository.deleteProduct(id);
       if (result === "not_found") return response.status(404).json({ error: "Product not found." });
       if (result === "has_orders") return response.status(409).json({ error: "This product is part of an order and cannot be deleted. Set its stock to zero instead." });
       response.status(204).end();
     },
-    updateSeller(request, response) {
-      const input = adminService.updateSeller(Number(request.params.id), request.body);
+    async updateSeller(request, response, next) {
+      const input = await adminService.updateSeller(Number(request.params.id), request.body);
       if (input.error) return response.status(input.status).json({ error: input.error });
       response.json(input.result);
     },
-    updateCommission(request, response) {
-      const input = adminService.updateCommission(request.body);
+    async updateCommission(request, response, next) {
+      const input = await adminService.updateCommission(request.body);
       if (input.error) return response.status(input.status).json({ error: input.error });
       response.json(input.result);
     },
-    createPayout(request, response) {
-      const input = adminService.createPayout(Number(request.params.id), request.body, request.session.user.id);
+    async createPayout(request, response, next) {
+      const input = await adminService.createPayout(Number(request.params.id), request.body, request.session.user.id);
       if (input.error) return response.status(input.status).json({ error: input.error });
       response.status(201).json(input.result);
     },
-    createCoupon(request, response) {
+    async createCoupon(request, response, next) {
       const input = adminService.createCoupon(request.body);
       if (input.error) return response.status(input.status).json({ error: input.error });
       try {
-        response.status(201).json(adminRepository.createCoupon(input.coupon));
+        response.status(201).json(await adminRepository.createCoupon(input.coupon));
       } catch (error) {
         if (error.code === "SQLITE_CONSTRAINT_UNIQUE") return response.status(409).json({ error: "A coupon with this code already exists." });
         throw error;
       }
     },
-    listCoupons(request, response) {
-      response.json(adminRepository.listCoupons());
+    async listCoupons(request, response, next) {
+      response.json(await adminRepository.listCoupons());
     },
-    updateCoupon(request, response) {
-      const input = adminService.updateCoupon(Number(request.params.id), request.body);
+    async updateCoupon(request, response, next) {
+      const input = await adminService.updateCoupon(Number(request.params.id), request.body);
       if (input.error) return response.status(input.status).json({ error: input.error });
       response.json(input.result);
     },
-    updateReturn(request, response) {
-      const input = adminService.updateReturn(Number(request.params.id), request.body, request.session.user.id);
+    async updateReturn(request, response, next) {
+      const input = await adminService.updateReturn(Number(request.params.id), request.body, request.session.user.id);
       if (input.error) return response.status(input.status).json({ error: input.error });
       response.json(input.result);
     },
-    updateOrder(request, response) {
-      const input = adminService.updateOrder(Number(request.params.id), request.body);
+    async updateOrder(request, response, next) {
+      const input = await adminService.updateOrder(Number(request.params.id), request.body);
       if (input.error) return response.status(input.status).json({ error: input.error });
       response.json(input.result);
     }

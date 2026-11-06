@@ -52,7 +52,7 @@ function createSellerController() {
     },
     async createProduct(request, response, next) {
       try {
-      const input = readAdminProduct(request.body);
+      const input = await readAdminProduct(request.body);
       if (input.error) return response.status(400).json({ error: input.error });
       response.status(201).json(await getSellerRepository().saveSellerProduct(request.seller.id, input.product));
       } catch (error) { next(error); }
@@ -61,7 +61,7 @@ function createSellerController() {
       try {
       const productId = Number(request.params.id);
       if (!Number.isSafeInteger(productId) || productId < 1) return response.status(400).json({ error: "Invalid product ID." });
-      const input = readAdminProduct(request.body, productId);
+      const input = await readAdminProduct(request.body, productId);
       if (input.error) return response.status(400).json({ error: input.error });
       const product = await getSellerRepository().saveSellerProduct(request.seller.id, input.product, productId);
       if (!product) return response.status(404).json({ error: "Product not found in your seller catalog." });
